@@ -1,0 +1,473 @@
+
+<style>
+  :root {
+    --neon: #00f2fe;
+    --neon2: #a78bfa;
+    --dark: #060816;
+    --card-bg: #0d1425;
+    --line: rgba(0,242,254,0.15);
+  }
+  body { margin:0; padding:0; font-family: var(--font-mono, monospace); }
+  .wrap {
+    background: linear-gradient(135deg, #060816 0%, #0a0f20 50%, #060816 100%);
+    border-radius: 16px;
+    padding: 28px 28px 32px;
+    min-height: 400px;
+    position: relative;
+    overflow: hidden;
+  }
+  .wrap::before {
+    content:'';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 38px,
+      rgba(0,242,254,0.04) 39px
+    );
+    pointer-events: none;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0,242,254,0.1);
+    border: 0.5px solid rgba(0,242,254,0.4);
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 11px;
+    color: var(--neon);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  .title {
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--neon);
+    text-shadow: 0 0 24px rgba(0,242,254,0.4);
+    margin: 0 0 6px;
+    font-family: var(--font-sans, sans-serif);
+  }
+  .subtitle {
+    font-size: 12px;
+    color: rgba(0,242,254,0.5);
+    letter-spacing: 1.5px;
+    margin-bottom: 24px;
+    font-family: var(--font-sans, sans-serif);
+  }
+  .section-head {
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: rgba(167,139,250,0.7);
+    text-transform: uppercase;
+    margin: 20px 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-head::after {
+    content:'';
+    flex:1;
+    height: 0.5px;
+    background: rgba(167,139,250,0.2);
+  }
+  .prompt-box {
+    background: rgba(0,242,254,0.04);
+    border: 0.5px solid rgba(0,242,254,0.2);
+    border-left: 2px solid var(--neon);
+    border-radius: 0 8px 8px 0;
+    padding: 14px 16px;
+    font-size: 12.5px;
+    line-height: 1.75;
+    color: #c7d8f0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    position: relative;
+    font-family: var(--font-mono, monospace);
+  }
+  .tag {
+    display: inline-block;
+    background: rgba(167,139,250,0.12);
+    border: 0.5px solid rgba(167,139,250,0.3);
+    border-radius: 4px;
+    padding: 1px 7px;
+    font-size: 10px;
+    color: #a78bfa;
+    margin: 0 2px;
+    vertical-align: middle;
+    font-family: var(--font-sans, sans-serif);
+  }
+  .kv {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .kv-item {
+    background: rgba(0,0,0,0.3);
+    border: 0.5px solid rgba(0,242,254,0.1);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .kv-label {
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: rgba(0,242,254,0.5);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    font-family: var(--font-sans, sans-serif);
+  }
+  .kv-val {
+    font-size: 12px;
+    color: #e2e8f0;
+    font-family: var(--font-mono, monospace);
+  }
+  .copy-btn {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    background: rgba(0,242,254,0.08);
+    border: 0.5px solid rgba(0,242,254,0.25);
+    border-radius: 5px;
+    padding: 3px 10px;
+    font-size: 10px;
+    color: var(--neon);
+    cursor: pointer;
+    font-family: var(--font-sans, sans-serif);
+    transition: background 0.2s;
+  }
+  .copy-btn:hover { background: rgba(0,242,254,0.16); }
+  .glow-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--neon);
+    box-shadow: 0 0 8px var(--neon);
+    display: inline-block;
+    margin-right: 6px;
+  }
+  .full-prompt {
+    background: #080e1f;
+    border: 0.5px solid rgba(0,242,254,0.2);
+    border-radius: 10px;
+    padding: 18px 20px;
+    font-size: 12px;
+    line-height: 1.8;
+    color: #b8cce4;
+    white-space: pre-wrap;
+    word-break: break-word;
+    position: relative;
+    font-family: var(--font-mono, monospace);
+    max-height: 420px;
+    overflow-y: auto;
+  }
+  .full-prompt::-webkit-scrollbar { width: 3px; }
+  .full-prompt::-webkit-scrollbar-track { background: transparent; }
+  .full-prompt::-webkit-scrollbar-thumb { background: rgba(0,242,254,0.3); border-radius: 3px; }
+  .hi { color: #00f2fe; }
+  .hi2 { color: #a78bfa; }
+  .hi3 { color: #34d399; }
+  .hi4 { color: #fbbf24; }
+  .hi5 { color: #f87171; }
+</style>
+
+<div class="wrap">
+  <div class="badge"><span class="glow-dot"></span>YEAR 50,000 AD — DESIGN DIRECTIVE</div>
+  <div class="title">EXCEL ULTRA-PREMIUM BEAUTIFICATION PROMPT</div>
+  <div class="subtitle">CASH IN HAND TRACKER · FM-WISE SHEET · OPENPYXL REDESIGN</div>
+
+  <div class="section-head">CORE DESIGN TOKENS</div>
+  <div class="kv">
+    <div class="kv-item">
+      <div class="kv-label">Primary Accent</div>
+      <div class="kv-val">00F2FE → 4FACFE</div>
+    </div>
+    <div class="kv-item">
+      <div class="kv-label">Secondary</div>
+      <div class="kv-val">A855F7 → 6366F1</div>
+    </div>
+    <div class="kv-item">
+      <div class="kv-label">Background Void</div>
+      <div class="kv-val">060816 · 0D1425</div>
+    </div>
+    <div class="kv-item">
+      <div class="kv-label">Surface Glass</div>
+      <div class="kv-val">111827 · 1E293B</div>
+    </div>
+    <div class="kv-item">
+      <div class="kv-label">Success / Total</div>
+      <div class="kv-val">10B981 on ECFDF5</div>
+    </div>
+    <div class="kv-item">
+      <div class="kv-label">Font Stack</div>
+      <div class="kv-val">Aptos · Segoe UI</div>
+    </div>
+  </div>
+
+  <div class="section-head">THE FULL PROMPT — COPY & USE WITH AI / YOUR SCRIPT</div>
+  <div style="position:relative">
+    <button class="copy-btn" onclick="copyPrompt()">⎘ Copy</button>
+    <div class="full-prompt" id="full-prompt"><span class="hi">ROLE:</span> You are a UI/UX designer from the year 50,000 AD, redesigning a pharma sales Excel tracker called "CASH IN HAND" using Python's openpyxl library. This sheet tracks daily cash collections by FM (Field Manager), MPO (Medical Promotion Officer), and DA (Distribution Agent) across 31 days of June 2026.
+
+<span class="hi">MISSION:</span> Transform the existing functional-but-plain Excel sheet into a visually breathtaking, Tailwind-CSS-inspired masterpiece that feels like it was built inside a holographic terminal from the far future. Every cell, border, color, and font choice must feel intentional and premium — zero visual noise, maximum clarity.
+
+<span class="hi2">═══════════════════════════════════════
+DESIGN PHILOSOPHY
+═══════════════════════════════════════</span>
+
+Think: <span class="hi4">obsidian glass meets biopunk terminal</span>.
+Dark void background. Neon cyan accent lines. Subtle purple shimmer on headers.
+Data cells breathe with whisper-light zebra fills.
+The TOTAL column glows like an emerald beacon.
+Every row whispers "this is serious money."
+
+Visual hierarchy must be surgical:
+  L1 → Title (cosmic, neon, large)
+  L2 → Section headers (midnight glass, white text)
+  L3 → Sub-headers: MPO / DA labels (indigo/slate, bold)
+  L4 → Person names row (near-black bg, bright white text)
+  L5 → Date rows (ultra-light zebra, dark readable text)
+  L6 → TOTAL column (always mint green, always stands out)
+
+<span class="hi2">═══════════════════════════════════════
+COLOR SYSTEM (openpyxl hex, no '#')
+═══════════════════════════════════════</span>
+
+<span class="hi3">-- BACKGROUNDS --</span>
+VOID_BLACK       = '060816'   # Outermost title
+DEEP_NAVY        = '0D1425'   # Header block bg
+MIDNIGHT_SLATE   = '1E293B'   # Column group headers
+DARK_SURFACE     = '0F172A'   # Name row bg
+GLASS_SURFACE    = '111827'   # Alternate accent rows
+ZEBRA_LIGHT      = 'F8FAFC'   # Even data rows (near-white)
+ZEBRA_LIGHTER    = 'FFFFFF'   # Odd data rows (pure white)
+TOTAL_COL_FILL   = 'ECFDF5'   # Total column data cells
+TOTAL_HEAD_FILL  = '065F46'   # Total column header
+
+<span class="hi3">-- TEXT COLORS --</span>
+NEON_CYAN        = '00F2FE'   # Title text + accents
+PURE_WHITE       = 'FFFFFF'   # On dark backgrounds
+SLATE_300        = 'CBD5E1'   # Secondary header text
+DARK_INK         = '0F172A'   # Body data text
+TOTAL_TEXT_DARK  = '064E3B'   # Total column data text
+MINT_HEADER_TEXT = 'A7F3D0'   # Total column header text
+VIOLET_ACCENT    = 'A855F7'   # Optional shimmer/accent rows
+
+<span class="hi3">-- BORDER COLORS --</span>
+BORDER_NEON_DIM  = '0E7490'   # Title outer frame
+BORDER_SLATE     = '334155'   # Header region dividers
+BORDER_LIGHT     = 'E2E8F0'   # Data cell inner grid
+BORDER_TOTAL     = '6EE7B7'   # Total column border
+
+<span class="hi2">═══════════════════════════════════════
+TYPOGRAPHY RULES
+═══════════════════════════════════════</span>
+
+Title:         Aptos (fallback: Segoe UI), 18pt, Bold, NEON_CYAN
+Header labels: Aptos, 10pt, Bold, PURE_WHITE
+Sub-headers:   Aptos, 9pt, Bold, SLATE_300
+Name row:      Aptos, 10pt, Bold, PURE_WHITE
+Date labels:   Aptos, 10pt, Bold, color='475569'
+Data cells:    Aptos, 10pt, Regular, DARK_INK
+Total header:  Aptos, 10pt, Bold, MINT_HEADER_TEXT, wrap=True
+Total data:    Aptos, 10pt, Bold, TOTAL_TEXT_DARK
+
+<span class="hi2">═══════════════════════════════════════
+LAYOUT ARCHITECTURE (Row-by-Row)
+═══════════════════════════════════════</span>
+
+<span class="hi4">Row 1:</span>     Empty buffer row (height=10)
+<span class="hi4">Row 2-3:</span>   TITLE MERGE across all columns
+             Fill=VOID_BLACK, Font=Title spec
+             Outer border: medium, BORDER_NEON_DIM (all 4 sides)
+             Text: "CASH IN HAND" centered both axes
+
+<span class="hi4">Row 4:</span>     Empty buffer (height=8)
+
+<span class="hi4">Row 5:</span>     MPO group header | DA group header | TOTAL header (starts)
+             Fill=MIDNIGHT_SLATE, Font=Bold White
+             TOTAL header merges Row5 down to Row11
+
+<span class="hi4">Row 6-10:</span>  Metadata rows (zone, FM, market, codes)
+             Fill=DEEP_NAVY, Font=Slate_300, 9pt
+             All HIDDEN by default (ws.row_dimensions[r].hidden=True)
+
+<span class="hi4">Row 11:</span>    NAME ROW — most critical visual row
+             Fill=DARK_SURFACE
+             Each person's name: Bold, White, 10pt
+             "DATE" cell merged R11:R14 — Fill=MIDNIGHT_SLATE
+             "FM SELF" merged R11:R14 — Fill=MIDNIGHT_SLATE
+             All centered. This row must visually POP.
+
+<span class="hi4">Row 12-14:</span> Designation / Vacant / DA info — HIDDEN
+<span class="hi4">Row 15-17:</span> HIDDEN buffer rows (but TOTAL formula still active)
+
+<span class="hi4">Row 18-48:</span> DATA ROWS — 31 days of June (31 JUN'26 → 1 JUN'26)
+             Even rows:  ZEBRA_LIGHTER (pure white)
+             Odd rows:   ZEBRA_LIGHT (F8FAFC)
+             Date cell:  Bold, '475569', centered
+             Data cells: Regular, DARK_INK, right-aligned, '#,##0' format
+             Total col:  TOTAL_COL_FILL fill, TOTAL_TEXT_DARK, Bold, right-aligned
+
+<span class="hi2">═══════════════════════════════════════
+BORDER SYSTEM
+═══════════════════════════════════════</span>
+
+Title block:    ALL SIDES medium, BORDER_NEON_DIM
+Header rows:    thin, BORDER_SLATE on all cells
+Name row:       thin top/bottom BORDER_SLATE, thin inner BORDER_LIGHT
+Data rows:      thin ALL SIDES, BORDER_LIGHT (color='E2E8F0')
+Total column:   thin ALL SIDES, BORDER_TOTAL (color='6EE7B7')
+DATE column:    left=medium BORDER_SLATE, right=thin BORDER_LIGHT
+
+<span class="hi2">═══════════════════════════════════════
+COLUMN WIDTH LOGIC
+═══════════════════════════════════════</span>
+
+Column A:       width=3 (dead spacer)
+Column B (DATE): width=14 (fixed)
+Column C (FM SELF): width=13 (fixed)
+MPO columns:    width=max(name_length * 1.1, 13), min=13
+DA columns:     width=max(name_length * 1.1, 13), min=13
+TOTAL column:   width=18 (always fixed)
+
+<span class="hi2">═══════════════════════════════════════
+FREEZE, ZOOM & UX
+═══════════════════════════════════════</span>
+
+ws.freeze_panes = 'D18'           # Lock name+date headers
+ws.sheet_view.zoomScale = 90     # Slightly zoomed out for overview
+ws.sheet_properties.tabColor = '00F2FE'  # Neon tab color per sheet
+
+<span class="hi2">═══════════════════════════════════════
+ROW HEIGHTS (px approximate via openpyxl)
+═══════════════════════════════════════</span>
+
+Title rows (2-3): height=28 each
+Header row (5):   height=22
+Name row (11):    height=26
+Data rows (18-48): height=20 each
+Buffer rows:      height=8 or 10
+
+<span class="hi2">═══════════════════════════════════════
+SPECIAL EFFECTS (achievable in openpyxl)
+═══════════════════════════════════════</span>
+
+1. TOTAL COLUMN DISTINCTION:
+   - Unique fill on every single cell (header + data)
+   - Bold font always
+   - Thicker/different border color
+   - Slightly wider column
+   → Makes it impossible to miss the aggregate
+
+2. VACANT COLUMN HIDING:
+   - Any MPO with is_vacant='Y' → column hidden
+   - No dead space in the visible sheet
+
+3. METADATA HIDING:
+   - Rows 6-10, 12-17 hidden
+   - Clean minimal view on open
+   - User can unhide for details
+
+4. NEON TITLE FRAME:
+   - Medium border on all 4 sides of merged title cell
+   - Color: '0E7490' (teal-700 equivalent)
+   - Creates a "glowing frame" effect around the title
+
+5. TAB COLOR:
+   - ws.sheet_properties.tabColor = Themed per zone
+   - Use different colors per FM file for identification
+
+<span class="hi2">═══════════════════════════════════════
+PYTHON CONSTANTS BLOCK TO ADD
+═══════════════════════════════════════</span>
+
+# ── 50K AD Design System ──────────────────────────────
+FONT_FAMILY   = 'Aptos'
+
+# Backgrounds
+C_VOID        = '060816'
+C_DEEP_NAVY   = '0D1425'
+C_MIDNIGHT    = '1E293B'
+C_DARK_SURF   = '0F172A'
+C_ZEBRA_A     = 'FFFFFF'
+C_ZEBRA_B     = 'F8FAFC'
+C_TOTAL_DATA  = 'ECFDF5'
+C_TOTAL_HEAD  = '065F46'
+
+# Text
+T_NEON        = '00F2FE'
+T_WHITE       = 'FFFFFF'
+T_SLATE       = 'CBD5E1'
+T_INK         = '0F172A'
+T_MINT        = 'A7F3D0'
+T_TOTAL_DARK  = '064E3B'
+T_DATE        = '475569'
+
+# Borders
+B_NEON        = '0E7490'
+B_SLATE       = '334155'
+B_LIGHT       = 'E2E8F0'
+B_TOTAL       = '6EE7B7'
+
+# Fonts
+font_title    = Font(name=FONT_FAMILY, size=18, bold=True,  color=T_NEON)
+font_hdr      = Font(name=FONT_FAMILY, size=10, bold=True,  color=T_WHITE)
+font_sub      = Font(name=FONT_FAMILY, size=9,  bold=True,  color=T_SLATE)
+font_name     = Font(name=FONT_FAMILY, size=10, bold=True,  color=T_WHITE)
+font_date     = Font(name=FONT_FAMILY, size=10, bold=True,  color=T_DATE)
+font_body     = Font(name=FONT_FAMILY, size=10, bold=False, color=T_INK)
+font_total_h  = Font(name=FONT_FAMILY, size=10, bold=True,  color=T_MINT)
+font_total_d  = Font(name=FONT_FAMILY, size=10, bold=True,  color=T_TOTAL_DARK)
+
+# Fills
+fill_void     = PatternFill('solid', start_color=C_VOID,       end_color=C_VOID)
+fill_navy     = PatternFill('solid', start_color=C_DEEP_NAVY,  end_color=C_DEEP_NAVY)
+fill_mid      = PatternFill('solid', start_color=C_MIDNIGHT,   end_color=C_MIDNIGHT)
+fill_dark     = PatternFill('solid', start_color=C_DARK_SURF,  end_color=C_DARK_SURF)
+fill_za       = PatternFill('solid', start_color=C_ZEBRA_A,    end_color=C_ZEBRA_A)
+fill_zb       = PatternFill('solid', start_color=C_ZEBRA_B,    end_color=C_ZEBRA_B)
+fill_tot_data = PatternFill('solid', start_color=C_TOTAL_DATA, end_color=C_TOTAL_DATA)
+fill_tot_head = PatternFill('solid', start_color=C_TOTAL_HEAD, end_color=C_TOTAL_HEAD)
+
+# Border helpers
+def side(style='thin', color=B_LIGHT):
+    return Side(style=style, color=color)
+
+bd_data  = Border(left=side(), right=side(), top=side(), bottom=side())
+bd_hdr   = Border(left=side('thin',B_SLATE), right=side('thin',B_SLATE),
+                  top=side('thin',B_SLATE),  bottom=side('thin',B_SLATE))
+bd_title = Border(left=side('medium',B_NEON), right=side('medium',B_NEON),
+                  top=side('medium',B_NEON),  bottom=side('medium',B_NEON))
+bd_total = Border(left=side('thin',B_TOTAL), right=side('thin',B_TOTAL),
+                  top=side('thin',B_TOTAL),  bottom=side('thin',B_TOTAL))
+bd_date  = Border(left=side('medium',B_SLATE), right=side('thin',B_LIGHT),
+                  top=side('thin',B_LIGHT),   bottom=side('thin',B_LIGHT))
+# ──────────────────────────────────────────────────────
+
+<span class="hi">OUTPUT EXPECTATION:</span>
+When opened in Excel/LibreOffice, this file must feel like
+opening a holographic command interface. The dark headers
+create depth. The neon title frame glows. The mint total
+column acts as a financial beacon. Data rows are clean,
+airy, and hyper-readable. A non-technical pharma manager
+must open this and immediately feel: "this is professional."
+
+<span class="hi5">CONSTRAINT:</span> All colors are openpyxl-compatible 6-char hex.
+No gradients (openpyxl doesn't support). No images.
+Achieve luxury through: color precision, border discipline,
+typography consistency, and spatial breathing room.</div>
+  </div>
+</div>
+
+<script>
+function copyPrompt() {
+  const text = document.getElementById('full-prompt').innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.querySelector('.copy-btn');
+    btn.textContent = '✓ Copied';
+    setTimeout(() => btn.textContent = '⎘ Copy', 2000);
+  });
+}
+</script>
