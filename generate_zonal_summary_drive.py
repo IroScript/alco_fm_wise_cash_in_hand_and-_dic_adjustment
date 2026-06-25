@@ -517,7 +517,26 @@ def main():
         if zone not in zone_groups:
             zone_groups[zone] = {}
         zone_groups[zone][fm_name] = fm_data
-        
+
+    # Fetch SH email per zone from EMAIL_2026 sheet
+    sh_by_zone = {}
+    try:
+        EMAIL_SHEET_ID = "1f5SFvhH8Bjb3OUlpof68teBktHuYyVELioxLv_KWXJo"
+        email_ws = gc.open_by_key(EMAIL_SHEET_ID).worksheet("EMAIL_2026")
+        email_rows = email_ws.get_all_values()
+        email_headers = [h.strip().upper() for h in email_rows[0]]
+        z_col = email_headers.index('ZONE') if 'ZONE' in email_headers else -1
+        sh_col = email_headers.index('SH EMAIL') if 'SH EMAIL' in email_headers else -1
+        for er in email_rows[1:]:
+            if z_col != -1 and sh_col != -1 and len(er) > max(z_col, sh_col):
+                z = str(er[z_col]).strip().upper()
+                sh = str(er[sh_col]).strip()
+                if z and sh and '@' in sh and z not in sh_by_zone:
+                    sh_by_zone[z] = sh
+        print(f"SH emails mapped: {sh_by_zone}")
+    except Exception as e:
+        print(f"Could not fetch SH emails: {e}")
+
     for zone, zone_fms in zone_groups.items():
         print(f"\n--- Processing Zonal Summary for {zone} ---")
         
@@ -566,8 +585,60 @@ def main():
             fields='id, webViewLink'
         ).execute()
         
-        print(f"Uploaded Zonal Summary Google Sheet successfully. ID: {uploaded_file.get('id')}")
-        
+        zonal_sheet_id = uploaded_file.get('id')
+        print(f"Uploaded Zonal Summary Google Sheet successfully. ID: {zonal_sheet_id}")
+
+        # Apply sheet protection: lock whole sheet, only D18:D48 editable for SH
+        sh_email = sh_by_zone.get(zone.upper(), '')
+        try:
+            sheets_api = googleapiclient.discovery.build('sheets', 'v4', credentials=creds)
+            ss_meta = sheets_api.spreadsheets().get(spreadsheetId=zonal_sheet_id, fields='sheets(properties(sheetId,title))').execute()
+            real_sheet_id = ss_meta['sheets'][0]['properties']['sheetId']
+            requests_body = [{
+                'addProtectedRange': {
+                    'protectedRange': {
+                        'range': {'sheetId': real_sheet_id},
+                        'description': f'Zonal Summary {zone} locked - SH edits only D18:D48',
+                        'warningOnly': False,
+                        'editors': {'users': [sh_email] if sh_email else []}
+                    }
+                }
+            }, {
+                'addProtectedRange': {
+                    'protectedRange': {
+                        'range': {
+                            'sheetId': real_sheet_id,
+                            'startRowIndex': 17, 'endRowIndex': 48,
+                            'startColumnIndex': 3, 'endColumnIndex': 4
+                        },
+                        'description': f'SH editable range for {zone}',
+                        'warningOnly': False,
+                        'editors': {'users': [sh_email] if sh_email else []}
+                    }
+                }
+            }]
+            sheets_api.spreadsheets().batchUpdate(spreadsheetId=zonal_sheet_id, body={'requests': requests_body}).execute()
+            print(f"Applied protection: locked all except D18:D48 for SH {sh_email}")
+        except Exception as e:
+            print(f"Non-fatal: could not apply protection to {zone} summary: {e}")
+
+        # Share zonal summary with SH (writer so they can edit D18:D48)
+        if sh_email:
+            try:
+                user_permission = {
+                    'type': 'user',
+                    'role': 'writer',
+                    'emailAddress': sh_email
+                }
+                drive_service.permissions().create(
+                    fileId=zonal_sheet_id,
+                    body=user_permission,
+                    fields='id'
+                ).execute()
+                print(f"Shared Zonal Summary {zone} with SH {sh_email}")
+            except Exception as e:
+                print(f"Error sharing zonal summary with SH: {e}")
+
         # Delete local temp file
         try:
             if os.path.exists(local_excel_path):

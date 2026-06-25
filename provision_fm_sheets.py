@@ -64,8 +64,19 @@ def get_email_mappings():
     headers = [h.strip().upper() for h in rows[0]]
     fm_col = headers.index('FM/AM, ZONE')
     email_col = headers.index('EMAIL')
+    sh_email_col = headers.index('SH EMAIL') if 'SH EMAIL' in headers else -1
     boss_email_col = headers.index('SM/DSM MAIL') if 'SM/DSM MAIL' in headers else -1
     boss_name_col = headers.index('SM NAME') if 'SM NAME' in headers else -1
+    zone_col = headers.index('ZONE') if 'ZONE' in headers else -1
+
+    # First pass: collect SH email per zone (use first non-empty SH EMAIL for that zone)
+    sh_by_zone = {}
+    for r in rows[1:]:
+        if zone_col != -1 and sh_email_col != -1 and len(r) > max(zone_col, sh_email_col):
+            zone = str(r[zone_col]).strip().upper()
+            sh_email = str(r[sh_email_col]).strip()
+            if zone and sh_email and '@' in sh_email and zone not in sh_by_zone:
+                sh_by_zone[zone] = sh_email
 
     mappings = {}
     for r in rows[1:]:
@@ -75,15 +86,19 @@ def get_email_mappings():
         # Extract FM Name without zone suffix (e.g. "RASHIDUL ISLAM, TANG" -> "RASHIDUL ISLAM")
         fm_name = fm_full.split(',')[0].strip().upper()
         fm_name_clean = clean_person_name(fm_name)
+        zone = str(r[zone_col]).strip().upper() if zone_col != -1 and len(r) > zone_col else ""
         
         email = str(r[email_col]).strip() if len(r) > email_col else ""
         boss_email = str(r[boss_email_col]).strip() if boss_email_col != -1 and len(r) > boss_email_col else ""
         boss_name = str(r[boss_name_col]).strip() if boss_name_col != -1 and len(r) > boss_name_col else ""
+        sh_email = sh_by_zone.get(zone, "")
         
         mappings[fm_name_clean] = {
             'email': email,
             'boss_email': boss_email,
-            'boss_name': boss_name
+            'boss_name': boss_name,
+            'sh_email': sh_email,
+            'zone': zone
         }
     return mappings
 
@@ -448,6 +463,14 @@ def main():
 
     print(f"Parsed {len(valid_fms)} valid FMs from Cash in Hand.xlsx")
     email_mappings = get_email_mappings()
+    # Derive per-zone SH email mapping from email mappings (first non-empty SH EMAIL per zone)
+    sh_by_zone = {}
+    for _fm, _m in email_mappings.items():
+        _z = _m.get('zone', '')
+        _se = _m.get('sh_email', '')
+        if _z and _se and '@' in _se and _z not in sh_by_zone:
+            sh_by_zone[_z] = _se
+    print(f"SH by zone mapping: {sh_by_zone}")
     registry = []
     
     # Process all valid FMs
@@ -509,11 +532,62 @@ def main():
         sheet_id = uploaded_file.get('id')
         web_link = uploaded_file.get('webViewLink')
         print(f"Uploaded Google Sheet successfully. ID: {sheet_id}")
+
+        # Compute FM's last editable data column (TOTAL column - 1)
+        _das = []
+        for _m in fm_data['markets']:
+            if _m['da_name'] and str(_m['da_name']).strip().upper() != 'VACANT':
+                _d = str(_m['da_name']).strip().upper()
+                if _d not in _das:
+                    _das.append(_d)
+        _num_mpos = len(fm_data['markets'])
+        _num_das = len(_das)
+        _total_col = 4 + _num_mpos + _num_das  # FM data area = C(3) .. (total_col - 1)
+        last_col_letter = get_column_letter(_total_col - 1)
+
+        # Apply sheet protection: lock everything except FM's editable data area (C18:{lastcol}48)
+        last_col_letter = get_column_letter(_total_col - 1)
+        try:
+            sheets_api = build('sheets', 'v4', credentials=creds)
+            # Get actual sheetId (default sheet's gid)
+            ss_meta = sheets_api.spreadsheets().get(spreadsheetId=sheet_id, fields='sheets(properties(sheetId,title))').execute()
+            real_sheet_id = ss_meta['sheets'][0]['properties']['sheetId']
+            requests_body = [{
+                'addProtectedRange': {
+                    'protectedRange': {
+                        'range': {'sheetId': real_sheet_id},
+                        'description': f'FM sheet locked - only {fm_clean_name} can edit C18:{last_col_letter}48',
+                        'warningOnly': False,
+                        'editors': {'users': [fm_email] if fm_email else []}
+                    }
+                }
+            }, {
+                'addProtectedRange': {
+                    'protectedRange': {
+                        'range': {
+                            'sheetId': real_sheet_id,
+                            'startRowIndex': 17, 'endRowIndex': 48,
+                            'startColumnIndex': 2, 'endColumnIndex': _total_col - 1
+                        },
+                        'description': f'Editable data area for FM {fm_clean_name}',
+                        'warningOnly': False,
+                        'editors': {'users': [fm_email] if fm_email else []}
+                    }
+                }
+            }]
+            sheets_api.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={'requests': requests_body}).execute()
+            print(f"Applied sheet protection: locked all except C18:{last_col_letter}48 for FM {fm_clean_name}")
+        except Exception as e:
+            print(f"Non-fatal: could not apply protection: {e}")
         
         if fm_email:
             share_file(sheet_id, fm_email, role='writer')
         if boss_email:
             share_file(sheet_id, boss_email, role='writer')
+        # SH gets comment-only/viewer access on FM sheet
+        sh_email = mapping.get('sh_email', '')
+        if sh_email and sh_email != fm_email:
+            share_file(sheet_id, sh_email, role='reader')
             
         registry.append({
             'FM Name': fm_clean_name,
@@ -522,7 +596,8 @@ def main():
             'URL': web_link,
             'FM Email': fm_email,
             'Boss Name': boss_name,
-            'Boss Email': boss_email
+            'Boss Email': boss_email,
+            'SH Email': sh_email,
         })
         
         try:
@@ -555,14 +630,24 @@ def main():
         reg_ws = reg_sheet.get_worksheet(0)
         print("Created new Master Registry sheet.")
         
-    header = ['FM Name', 'Zone', 'Sheet ID', 'URL', 'FM Email', 'Boss Name', 'Boss Email']
+    header = ['FM Name', 'Zone', 'Sheet ID', 'URL', 'FM Email', 'Boss Name', 'Boss Email', 'SH Email']
     rows_to_write = [header]
     for r in registry:
-        rows_to_write.append([r['FM Name'], r['Zone'], r['Sheet ID'], r['URL'], r['FM Email'], r['Boss Name'], r['Boss Email']])
-        
+        rows_to_write.append([r['FM Name'], r['Zone'], r['Sheet ID'], r['URL'], r['FM Email'], r['Boss Name'], r['Boss Email'], r.get('SH Email', '')])
+
     reg_ws.update('A1', rows_to_write)
     print("Master Registry updated successfully.")
     print(f"Finished in {time.time() - start_time:.2f} seconds.")
+
+    # Persist sh_by_zone for zonal summary script
+    try:
+        import json as _json
+        sh_path = os.path.join(BASE_DIR, "sh_by_zone.json")
+        with open(sh_path, 'w') as _f:
+            _json.dump(sh_by_zone, _f, indent=2)
+        print(f"Saved SH mapping to {sh_path}: {sh_by_zone}")
+    except Exception as e:
+        print(f"Non-fatal: could not save sh_by_zone.json: {e}")
 
 if __name__ == "__main__":
     main()
