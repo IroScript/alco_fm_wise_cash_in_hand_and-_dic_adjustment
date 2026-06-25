@@ -420,6 +420,9 @@ def generate_local_zonal_excel(zone, zone_fms, registry_map, output_path):
     for r in [6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17]:
         ws.row_dimensions[r].hidden = True
         
+    # Freeze the DATE column (B) and metadata/title rows (1-17)
+    ws.freeze_panes = 'C18'
+        
     wb.save(output_path)
     wb.close()
 

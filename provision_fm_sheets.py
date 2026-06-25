@@ -213,7 +213,8 @@ def create_local_excel(fm_name, fm_data):
     for r in range(18, 18 + len(dates)):
         ws.row_dimensions[r].height = 20
         
-    ws.freeze_panes = 'D18'
+    # Freeze DATE column (B) + title/metadata rows (1-17)
+    ws.freeze_panes = 'C18'
     
     # Title Block
     ws.merge_cells(start_row=2, start_column=2, end_row=3, end_column=total_cols+1)
