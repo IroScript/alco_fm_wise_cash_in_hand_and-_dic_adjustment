@@ -577,6 +577,31 @@ def main():
             }]
             sheets_api.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={'requests': requests_body}).execute()
             print(f"Applied sheet protection: locked all except C18:{last_col_letter}48 for FM {fm_clean_name}")
+
+            # Add data validation: numeric values >= 0 only in editable data area
+            try:
+                validation_requests = [{
+                    'setDataValidation': {
+                        'range': {
+                            'sheetId': real_sheet_id,
+                            'startRowIndex': 17, 'endRowIndex': 48,
+                            'startColumnIndex': 2, 'endColumnIndex': _total_col - 1
+                        },
+                        'rule': {
+                            'condition': {
+                                'type': 'NUMBER_GREATER_THAN_EQ',
+                                'values': [{'userEnteredValue': '0'}]
+                            },
+                            'inputMessage': 'Enter a positive number (0 or greater). Letters and text are not allowed.',
+                            'strict': True,
+                            'showCustomUi': True
+                        }
+                    }
+                }]
+                sheets_api.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={'requests': validation_requests}).execute()
+                print(f"Applied number-only validation on C18:{last_col_letter}48 for FM {fm_clean_name}")
+            except Exception as ve:
+                print(f"Non-fatal: could not apply data validation: {ve}")
         except Exception as e:
             print(f"Non-fatal: could not apply protection: {e}")
         

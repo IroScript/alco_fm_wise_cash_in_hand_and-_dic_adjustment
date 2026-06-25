@@ -619,6 +619,31 @@ def main():
             }]
             sheets_api.spreadsheets().batchUpdate(spreadsheetId=zonal_sheet_id, body={'requests': requests_body}).execute()
             print(f"Applied protection: locked all except D18:D48 for SH {sh_email}")
+
+            # Add data validation: D18:D48 only accepts numeric values >= 0
+            try:
+                validation_requests = [{
+                    'setDataValidation': {
+                        'range': {
+                            'sheetId': real_sheet_id,
+                            'startRowIndex': 17, 'endRowIndex': 48,
+                            'startColumnIndex': 3, 'endColumnIndex': 4
+                        },
+                        'rule': {
+                            'condition': {
+                                'type': 'NUMBER_GREATER_THAN_EQ',
+                                'values': [{'userEnteredValue': '0'}]
+                            },
+                            'inputMessage': 'Enter a positive number (0 or greater). Letters and text are not allowed.',
+                            'strict': True,
+                            'showCustomUi': True
+                        }
+                    }
+                }]
+                sheets_api.spreadsheets().batchUpdate(spreadsheetId=zonal_sheet_id, body={'requests': validation_requests}).execute()
+                print(f"Applied number-only validation on D18:D48 for {zone} summary (SH: {sh_email})")
+            except Exception as ve:
+                print(f"Non-fatal: could not apply data validation to {zone}: {ve}")
         except Exception as e:
             print(f"Non-fatal: could not apply protection to {zone} summary: {e}")
 
