@@ -4,6 +4,9 @@ from openpyxl.utils import get_column_letter
 import os
 import re
 import time
+import argparse
+import datetime
+import calendar
 import gspread
 from google.oauth2.credentials import Credentials
 import googleapiclient.discovery
@@ -78,8 +81,26 @@ bd_date  = Border(left=side('medium', B_SLATE), right=side('thin', B_LIGHT),
 align_center = Alignment(horizontal='center', vertical='center', wrap_text=True)
 align_right  = Alignment(horizontal='right', vertical='center')
 
-# 31 JUL'26 down to 1 JUL'26
-dates = [f"{d} JUL'26" for d in range(31, 0, -1)]
+def get_target_month_info(target_date):
+    # target_date.month is the PREVIOUS month (current month being archived).
+    # We create the NEW month = target_date.month + 1
+    # E.g., target_date=2026-06-30 -> NEW month = JUL'26
+    year = target_date.year
+    month = target_date.month
+    if month == 12:
+        next_month, next_year = 1, year + 1
+    else:
+        next_month, next_year = month + 1, year
+    short = calendar.month_abbr[next_month].upper()
+    yr = str(next_year)[2:]
+    month_str = f"{short}'{yr}"
+    _, num_days = calendar.monthrange(next_year, next_month)
+    return month_str, num_days
+
+# Default: NEW month = next month from today
+TARGET_DATE = datetime.date.today()
+TARGET_MONTH_STR, TARGET_NUM_DAYS = get_target_month_info(TARGET_DATE)
+dates = [f"{d} {TARGET_MONTH_STR}" for d in range(TARGET_NUM_DAYS, 0, -1)]
 
 def clean_person_name(name):
     if not name:
@@ -108,7 +129,7 @@ def get_or_create_drive_folder(drive_service, name, parent_id):
 def generate_local_zonal_excel(zone, zone_fms, registry_map, output_path):
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "JUL'26"
+    ws.title = TARGET_MONTH_STR
     ws.views.sheetView[0].showGridLines = True
     ws.sheet_view.zoomScale = 90
     
@@ -412,7 +433,7 @@ def generate_local_zonal_excel(zone, zone_fms, registry_map, output_path):
             col_count = f_end - f_start + 1
             fm_last_col_letter = get_column_letter(3 + col_count - 1)
             
-            importrange_formula = f'=IMPORTRANGE("{fm_url}", "JUN\'26!C18:{fm_last_col_letter}48")'
+            importrange_formula = f'=IMPORTRANGE("{fm_url}", "{TARGET_MONTH_STR}!C18:{fm_last_col_letter}48")'
             ws.cell(row=18, column=f_start, value=importrange_formula)
             print(f"Set IMPORTRANGE for {fm_clean_name} at cell {get_column_letter(f_start)}18")
             
@@ -427,6 +448,23 @@ def generate_local_zonal_excel(zone, zone_fms, registry_map, output_path):
     wb.close()
 
 def main():
+    global TARGET_DATE, TARGET_MONTH_STR, TARGET_NUM_DAYS, dates
+
+    # 0. Parse CLI args
+    parser = argparse.ArgumentParser(description="Zonal Summary Generator for Google Drive")
+    parser.add_argument("--simulate-date", help="Simulate the source month (YYYY-MM-DD). Next month will be created.", default=None)
+    parser.add_argument("--dry-run", action="store_true", help="Preview what would happen without modifying anything")
+    parser.add_argument("--skip-upload", action="store_true", help="Build local Excel but skip Drive upload")
+    args = parser.parse_args()
+
+    if args.simulate_date:
+        TARGET_DATE = datetime.datetime.strptime(args.simulate_date, "%Y-%m-%d").date()
+        print(f"{'[DRY-RUN] ' if args.dry_run else ''}SIMULATION RUN: target_date={TARGET_DATE} (will create next-month sheet)")
+
+    TARGET_MONTH_STR, TARGET_NUM_DAYS = get_target_month_info(TARGET_DATE)
+    dates = [f"{d} {TARGET_MONTH_STR}" for d in range(TARGET_NUM_DAYS, 0, -1)]
+    print(f"Target month: {TARGET_MONTH_STR} ({TARGET_NUM_DAYS} days)")
+
     # 1. Load Registry
     print("Reading registry from Master_Registry_Cash_In_Hand...")
     creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
@@ -557,21 +595,39 @@ def main():
         
         # Create folder if not exists on Drive
         zone_folder_id = get_or_create_drive_folder(drive_service, zone, PARENT_FOLDER_ID)
-        
+
         local_excel_path = os.path.join(BASE_DIR, f"{zone}_CASH_IN_HAND_Summary_temp.xlsx")
         generate_local_zonal_excel(zone, sorted_zone_fms, registry_map, local_excel_path)
-        
-        # Check if Google Sheet already exists in this Zone folder
+
         sheet_name = f"{zone} CASH IN HAND"
+        sh_email = sh_by_zone.get(zone.upper(), '')
+
+        if args.dry_run:
+            print(f"  [DRY-RUN] Would query Drive for existing '{sheet_name}' in zone folder {zone_folder_id}")
+            print(f"  [DRY-RUN] Would trash old sheet (if any)")
+            print(f"  [DRY-RUN] Would upload {local_excel_path} -> Google Sheet '{sheet_name}' (tab='{TARGET_MONTH_STR}', {TARGET_NUM_DAYS} days)")
+            print(f"  [DRY-RUN] Would apply protection: lock all except D18:D48 for SH {sh_email}")
+            print(f"  [DRY-RUN] Would apply number-only validation on D18:D48")
+            print(f"  [DRY-RUN] Would share sheet with SH {sh_email} as writer")
+            print(f"  [DRY-RUN] SKIPPING actual Drive writes for {zone}")
+            # Still remove local temp file so we don't pollute workspace
+            try:
+                if os.path.exists(local_excel_path):
+                    os.remove(local_excel_path)
+            except Exception:
+                pass
+            continue
+
+        # Check if Google Sheet already exists in this Zone folder
         query = f"name = '{sheet_name}' and mimeType = 'application/vnd.google-apps.spreadsheet' and '{zone_folder_id}' in parents and trashed = false"
         res = drive_service.files().list(q=query, spaces='drive', fields='files(id)').execute()
         files = res.get('files', [])
-        
+
         if files:
             # Trash old one
             drive_service.files().update(fileId=files[0]['id'], body={'trashed': True}).execute()
             print(f"Trashed old summary sheet: {sheet_name}")
-            
+
         # Upload as a new Google Sheet
         file_metadata = {
             'name': sheet_name,
@@ -584,12 +640,11 @@ def main():
             media_body=media,
             fields='id, webViewLink'
         ).execute()
-        
+
         zonal_sheet_id = uploaded_file.get('id')
         print(f"Uploaded Zonal Summary Google Sheet successfully. ID: {zonal_sheet_id}")
 
         # Apply sheet protection: lock whole sheet, only D18:D48 editable for SH
-        sh_email = sh_by_zone.get(zone.upper(), '')
         try:
             sheets_api = googleapiclient.discovery.build('sheets', 'v4', credentials=creds)
             ss_meta = sheets_api.spreadsheets().get(spreadsheetId=zonal_sheet_id, fields='sheets(properties(sheetId,title))').execute()

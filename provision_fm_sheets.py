@@ -5,12 +5,34 @@ import os
 import re
 import time
 import json
+import datetime
+import calendar
+import argparse
 import gspread
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+
+# Month-target globals (overridden via CLI)
+TARGET_DATE = datetime.date.today()
+TARGET_MONTH_STR = None   # e.g. "JUL'26"
+TARGET_NUM_DAYS = None    # e.g. 31
+
+def get_target_month_info(target_date):
+    """Compute the *next* month info from target_date (last day of current month).
+    target_date = 2026-06-30 -> next month = JUL'26 (31 days)
+    """
+    first_next = target_date.replace(day=1) + datetime.timedelta(days=32)
+    next_month_date = first_next.replace(day=1)
+    year = next_month_date.year
+    month = next_month_date.month
+    month_abbr = calendar.month_abbr[month].upper()
+    year_short = str(year)[2:]
+    month_str = f"{month_abbr}'{year_short}"
+    _, num_days = calendar.monthrange(year, month)
+    return month_str, num_days
 
 # Directory Settings
 BASE_DIR = r"c:\Users\Irak\Desktop\Cash in Hand and Dic Adjustment"
@@ -189,8 +211,8 @@ def create_local_excel(fm_name, fm_data):
     align_center = Alignment(horizontal='center', vertical='center', wrap_text=True)
     align_right  = Alignment(horizontal='right', vertical='center')
 
-    # Dates for JUN'26 (30 days)
-    dates = [f"{d} JUN'26" for d in range(30, 0, -1)]
+    # Dates for TARGET_MONTH_STR (e.g. 31 JUL'26 down to 1 JUL'26)
+    dates = [f"{d} {TARGET_MONTH_STR}" for d in range(TARGET_NUM_DAYS, 0, -1)]
 
     zone = fm_data['zone']
     markets = fm_data['markets']
@@ -208,7 +230,7 @@ def create_local_excel(fm_name, fm_data):
     
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "JUN'26"
+    ws.title = TARGET_MONTH_STR
     ws.views.sheetView[0].showGridLines = True
     ws.sheet_view.zoomScale = 90
     
@@ -403,6 +425,23 @@ def create_local_excel(fm_name, fm_data):
     return temp_path
 
 def main():
+    global TARGET_DATE, TARGET_MONTH_STR, TARGET_NUM_DAYS
+
+    # 0. CLI args
+    parser = argparse.ArgumentParser(description="Provision FM sheets for the next month")
+    parser.add_argument("--simulate-date", help="Simulate a run date (YYYY-MM-DD). Next month will be used.", default=None)
+    parser.add_argument("--dry-run", action="store_true", help="Preview without uploading")
+    parser.add_argument("--fm-filter", help="Only provision a single FM (by clean name)", default=None)
+    parser.add_argument("--share-only", action="store_true", help="Skip rebuild; just share existing sheet with FM/Boss/SH using Master Registry")
+    args = parser.parse_args()
+
+    if args.simulate_date:
+        TARGET_DATE = datetime.datetime.strptime(args.simulate_date, "%Y-%m-%d").date()
+        print(f"{'[DRY-RUN] ' if args.dry_run else ''}SIMULATION RUN: target_date={TARGET_DATE}")
+
+    TARGET_MONTH_STR, TARGET_NUM_DAYS = get_target_month_info(TARGET_DATE)
+    print(f"Target month: {TARGET_MONTH_STR} ({TARGET_NUM_DAYS} days)")
+
     start_time = time.time()
     wb_local = openpyxl.load_workbook(os.path.join(BASE_DIR, "Cash in Hand.xlsx"))
     ws_local = wb_local["FM wise DA and MPO Names"]
@@ -472,7 +511,44 @@ def main():
             sh_by_zone[_z] = _se
     print(f"SH by zone mapping: {sh_by_zone}")
     registry = []
-    
+
+    # --share-only: read Master Registry, just share existing files (recovery path)
+    if args.share_only:
+        registry_name = "Master_Registry_Cash_In_Hand"
+        query = f"name = '{registry_name}' and mimeType = 'application/vnd.google-apps.spreadsheet' and '{PARENT_FOLDER_ID}' in parents and trashed = false"
+        res = drive_service.files().list(q=query, spaces='drive', fields='files(id)').execute()
+        files = res.get('files', [])
+        if not files:
+            print('No Master Registry found.')
+            return
+        reg_sheet = gc.open_by_key(files[0]['id'])
+        reg_ws = reg_sheet.get_worksheet(0)
+        reg_rows = reg_ws.get_all_values()
+        print(f'Loaded {len(reg_rows)-1} FMs from Master Registry.')
+        for row in reg_rows[1:]:
+            if len(row) < 8:
+                continue
+            fm_name_clean = clean_person_name(row[0])
+            zone = row[1]
+            sheet_id = row[2]
+            fm_email = row[4] if len(row) > 4 else ''
+            boss_email = row[6] if len(row) > 6 else ''
+            sh_email = row[7] if len(row) > 7 else ''
+            if args.fm_filter and args.fm_filter.upper() not in fm_name_clean.upper():
+                continue
+            print(f'\n--- [SHARE-ONLY] {fm_name_clean} ({sheet_id}) ---')
+            try:
+                if fm_email:
+                    share_file(sheet_id, fm_email, role='writer')
+                if boss_email:
+                    share_file(sheet_id, boss_email, role='writer')
+                if sh_email and sh_email != fm_email:
+                    share_file(sheet_id, sh_email, role='reader')
+                print(f'  Shared {fm_name_clean}')
+            except Exception as e:
+                print(f'  ERROR sharing {fm_name_clean}: {e}')
+        return
+
     # Process all valid FMs
     fms_to_process = list(valid_fms.keys())
     print(f"Processing all {len(fms_to_process)} FMs...")
@@ -481,32 +557,63 @@ def main():
         fm_clean_name = fm_name.split(',')[0].strip()
         fm_data = valid_fms[fm_name]
         zone = fm_data['zone']
-        
-        mapping = email_mappings.get(clean_person_name(fm_clean_name), {'email': '', 'boss_email': '', 'boss_name': ''})
+
+        # Apply --fm-filter if set
+        if args.fm_filter and args.fm_filter.upper() not in fm_clean_name.upper():
+            print(f"  [SKIP-FILTER] {fm_clean_name} (filter={args.fm_filter})")
+            continue
+
+        mapping = email_mappings.get(clean_person_name(fm_clean_name), {'email': '', 'boss_email': '', 'boss_name': '', 'sh_email': ''})
         fm_email = mapping['email']
         boss_email = mapping['boss_email']
         boss_name = mapping['boss_name']
-        
+        sh_email = mapping.get('sh_email', '')
+
         print(f"\n--- Processing FM: {fm_clean_name} | Zone: {zone} ---")
-        
+
         local_path = create_local_excel(fm_clean_name, fm_data)
-        zone_folder_id = get_or_create_drive_folder(zone, PARENT_FOLDER_ID)
-        
-        # Trash old FM sheet(s) with the same name before uploading
+        # In dry-run, skip real Drive folder creation to avoid extra noise
+        if args.dry_run:
+            zone_folder_id = f"DRYRUN_FOLDER_{zone}"
+        else:
+            zone_folder_id = get_or_create_drive_folder(zone, PARENT_FOLDER_ID)
+
+        # Compute last_col_letter once so both dry-run and real paths can use it
+        _das = []
+        for _m in fm_data['markets']:
+            if _m['da_name'] and str(_m['da_name']).strip().upper() != 'VACANT':
+                _d = str(_m['da_name']).strip().upper()
+                if _d not in _das:
+                    _das.append(_d)
+        _total_col = 4 + len(fm_data['markets']) + len(_das)
+        last_col_letter = get_column_letter(_total_col - 1)
+
         sheet_name = f"CASH IN HAND - {fm_clean_name}"
+
+        if args.dry_run:
+            print(f"  [DRY-RUN] Would query Drive for existing sheet: '{sheet_name}' in zone folder {zone_folder_id}")
+            print(f"  [DRY-RUN] Would trash old sheet(s) with that name")
+            print(f"  [DRY-RUN] Would upload new xlsx ({local_path}) -> Google Sheet '{sheet_name}' (tab='{TARGET_MONTH_STR}', {TARGET_NUM_DAYS} days)")
+            print(f"  [DRY-RUN] Would apply protection + number-only validation on editable range C18:{last_col_letter}48")
+            print(f"  [DRY-RUN] Would share with FM={fm_email}, Boss={boss_email}, SH={sh_email}")
+            print(f"  [DRY-RUN] Would append row to Master Registry")
+            print(f"  [DRY-RUN] SKIPPING actual Drive writes for {fm_clean_name}")
+            continue
+
+        # Trash old FM sheet(s) with the same name before uploading
         query = f"name = '{sheet_name}' and mimeType = 'application/vnd.google-apps.spreadsheet' and '{zone_folder_id}' in parents and trashed = false"
         old_files = drive_service.files().list(q=query, spaces='drive', fields='files(id)').execute().get('files', [])
         for old_file in old_files:
             drive_service.files().update(fileId=old_file['id'], body={'trashed': True}).execute()
             print(f"Trashed old sheet: {sheet_name} (ID: {old_file['id']})")
-        
+
         file_metadata = {
             'name': f"CASH IN HAND - {fm_clean_name}",
             'mimeType': 'application/vnd.google-apps.spreadsheet',
             'parents': [zone_folder_id]
         }
         media = MediaFileUpload(local_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resumable=True)
-        
+
         # Retry upload up to 3 times on timeout
         uploaded_file = None
         for attempt in range(3):
@@ -525,10 +632,10 @@ def main():
                 else:
                     print(f"SKIPPING {fm_clean_name} after 3 failed attempts.")
                     continue
-        
+
         if not uploaded_file:
             continue
-        
+
         sheet_id = uploaded_file.get('id')
         web_link = uploaded_file.get('webViewLink')
         print(f"Uploaded Google Sheet successfully. ID: {sheet_id}")
@@ -635,33 +742,69 @@ def main():
 
     print("\nWriting Master Registry to Google Sheets...")
     registry_name = "Master_Registry_Cash_In_Hand"
-    
+
+    # When --fm-filter is set, only update that one FM row in the registry
+    # (do not clear the whole sheet, or we'd lose other FMs).
+    update_only_filtered = bool(args.fm_filter)
+
     query = f"name = '{registry_name}' and mimeType = 'application/vnd.google-apps.spreadsheet' and '{PARENT_FOLDER_ID}' in parents and trashed = false"
     res = drive_service.files().list(q=query, spaces='drive', fields='files(id)').execute()
     files = res.get('files', [])
     if files:
         reg_sheet = gc.open_by_key(files[0]['id'])
         reg_ws = reg_sheet.get_worksheet(0)
-        reg_ws.clear()
-        print("Cleared existing Master Registry sheet.")
+        if not args.dry_run and not update_only_filtered:
+            reg_ws.clear()
+            print("Cleared existing Master Registry sheet.")
+        else:
+            print(f"  [DRY-RUN/'--fm-filter'] Skipping clear; will merge filtered rows into existing registry.")
     else:
         file_metadata = {
             'name': registry_name,
             'mimeType': 'application/vnd.google-apps.spreadsheet',
             'parents': [PARENT_FOLDER_ID]
         }
-        reg_file = drive_service.files().create(body=file_metadata, fields='id').execute()
-        reg_sheet = gc.open_by_key(reg_file['id'])
-        reg_ws = reg_sheet.get_worksheet(0)
-        print("Created new Master Registry sheet.")
-        
+        if args.dry_run:
+            print(f"  [DRY-RUN] Would create Master Registry spreadsheet '{registry_name}' in folder {PARENT_FOLDER_ID}")
+            reg_sheet = None
+            reg_ws = None
+        else:
+            reg_file = drive_service.files().create(body=file_metadata, fields='id').execute()
+            reg_sheet = gc.open_by_key(reg_file['id'])
+            reg_ws = reg_sheet.get_worksheet(0)
+            print("Created new Master Registry sheet.")
+
     header = ['FM Name', 'Zone', 'Sheet ID', 'URL', 'FM Email', 'Boss Name', 'Boss Email', 'SH Email']
     rows_to_write = [header]
     for r in registry:
         rows_to_write.append([r['FM Name'], r['Zone'], r['Sheet ID'], r['URL'], r['FM Email'], r['Boss Name'], r['Boss Email'], r.get('SH Email', '')])
 
-    reg_ws.update('A1', rows_to_write)
-    print("Master Registry updated successfully.")
+    if not args.dry_run and reg_ws is not None:
+        if update_only_filtered and files:
+            # Merge: replace existing rows with same FM Name; append new ones
+            existing_rows = reg_ws.get_all_values()
+            existing_map = {}
+            for i, row in enumerate(existing_rows[1:], start=2):
+                if row and row[0]:
+                    existing_map[row[0]] = i
+            # First make sure header exists
+            if not existing_rows or existing_rows[0] != header:
+                reg_ws.update('A1', [header])
+            for new_row in rows_to_write[1:]:
+                fm_key = new_row[0]
+                if fm_key in existing_map:
+                    row_idx = existing_map[fm_key]
+                    reg_ws.update(f'A{row_idx}', [new_row])
+                    print(f"  Updated row {row_idx} for {fm_key}")
+                else:
+                    reg_ws.append_row(new_row)
+                    print(f"  Appended new row for {fm_key}")
+            print("Master Registry merged successfully.")
+        else:
+            reg_ws.update('A1', rows_to_write)
+            print("Master Registry updated successfully.")
+    elif args.dry_run:
+        print(f"  [DRY-RUN] Would write {len(rows_to_write)} rows to Master Registry")
     print(f"Finished in {time.time() - start_time:.2f} seconds.")
 
     # Persist sh_by_zone for zonal summary script

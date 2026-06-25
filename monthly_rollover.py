@@ -28,36 +28,39 @@ def get_col_letter(col_idx):
     return result
 
 def get_month_info(target_date):
-    # e.g., target_date = 2026-07-01
-    # returns:
-    # current_month_str: "JUL'26"
-    # prev_month_str: "JUN'26"
-    # num_days_current: 31
-    # num_days_prev: 30
-    # current_month_short: "JUL"
-    # year_short: "26"
+    # Logic:
+    #   If target_date = 2026-06-30 (last day of JUN), rollover should create JUL tab.
+    #   So: current = NEXT month, prev = target_date's month
+    # Returns:
+    #   current_month_str: "JUL'26"   (the NEW month being created)
+    #   prev_month_str: "JUN'26"      (the month being archived/duplicated)
+    #   num_days_current: 31
+    #   num_days_prev: 30
+    #   current_month_short: "JUL"
+    #   year_short: "26"
     
     year = target_date.year
     month = target_date.month
     
-    current_month_short = calendar.month_abbr[month].upper()
-    year_short = str(year)[2:]
+    # Calculate NEXT month (the one we're creating)
+    if month == 12:
+        next_month = 1
+        next_year = year + 1
+    else:
+        next_month = month + 1
+        next_year = year
+        
+    current_month_short = calendar.month_abbr[next_month].upper()
+    year_short = str(next_year)[2:]
     current_month_str = f"{current_month_short}'{year_short}"
     
-    # Calculate previous month
-    if month == 1:
-        prev_month = 12
-        prev_year = year - 1
-    else:
-        prev_month = month - 1
-        prev_year = year
-        
-    prev_month_short = calendar.month_abbr[prev_month].upper()
-    prev_year_short = str(prev_year)[2:]
+    # prev = current target month
+    prev_month_short = calendar.month_abbr[month].upper()
+    prev_year_short = str(year)[2:]
     prev_month_str = f"{prev_month_short}'{prev_year_short}"
     
-    _, num_days_current = calendar.monthrange(year, month)
-    _, num_days_prev = calendar.monthrange(prev_year, prev_month)
+    _, num_days_current = calendar.monthrange(next_year, next_month)
+    _, num_days_prev = calendar.monthrange(year, month)
     
     return current_month_str, prev_month_str, num_days_current, num_days_prev
 
@@ -86,9 +89,9 @@ def protect_sheet(spreadsheet_id, sheet_id, user_email, message="Locked archive"
     except Exception as e:
         print(f"Error locking sheet ID {sheet_id}: {e}")
 
-def rollover_fm_sheet(sheet_id, fm_name, target_date, user_email):
+def rollover_fm_sheet(sheet_id, fm_name, target_date, user_email, dry_run=False):
     current_m, prev_m, curr_days, prev_days = get_month_info(target_date)
-    print(f"Rolling over sheet {sheet_id} for FM: {fm_name} | {prev_m} -> {current_m}")
+    print(f"[{'DRY-RUN' if dry_run else 'ROLL'}] Sheet {sheet_id} for FM: {fm_name} | {prev_m} -> {current_m}")
     
     try:
         ss = gc.open_by_key(sheet_id)
@@ -96,7 +99,7 @@ def rollover_fm_sheet(sheet_id, fm_name, target_date, user_email):
         # Check if new month tab already exists
         for ws in ss.worksheets():
             if ws.title == current_m:
-                print(f"New month sheet {current_m} already exists. Skipping.")
+                print(f"  -> {current_m} tab already exists. Skipping.")
                 return
                 
         # Get previous month's sheet
@@ -105,11 +108,26 @@ def rollover_fm_sheet(sheet_id, fm_name, target_date, user_email):
         except gspread.WorksheetNotFound:
             # Fallback to the first worksheet if prev month tab name is not found
             prev_ws = ss.get_worksheet(0)
-            print(f"Warning: Sheet '{prev_m}' not found. Using '{prev_ws.title}' as template.")
-            
-        # Duplicate the template sheet to create the new month sheet at index 0
-        new_ws = ss.duplicate_sheet(source_sheet_id=prev_ws.id, insert_sheet_index=0, new_sheet_name=current_m)
-        print(f"Duplicated '{prev_ws.title}' as '{current_m}' at index 0.")
+            print(f"  Warning: '{prev_m}' not found. Using '{prev_ws.title}' as template.")
+        
+        if dry_run:
+            print(f"  [DRY-RUN] Would duplicate '{prev_ws.title}' -> '{current_m}' (at index 0)")
+            print(f"  [DRY-RUN] Would protect '{prev_ws.title}' (archive)")
+            diff = curr_days - prev_days
+            if diff > 0:
+                print(f"  [DRY-RUN] Would insert {diff} rows to extend dates from {prev_days} to {curr_days}")
+            elif diff < 0:
+                print(f"  [DRY-RUN] Would delete {abs(diff)} rows to shrink dates from {prev_days} to {curr_days}")
+            else:
+                print(f"  [DRY-RUN] No row change needed (both {curr_days} days)")
+            print(f"  [DRY-RUN] Would update {curr_days} date cells in Column B ({curr_days} {current_m} down to 1 {current_m})")
+            print(f"  [DRY-RUN] Would clear input cells C18:{get_col_letter(11)}{18 + curr_days - 1}")
+            print(f"  [DRY-RUN] Would write SUM formulas in TOTAL column for {curr_days} rows")
+            return
+        else:
+            # Duplicate the template sheet to create the new month sheet at index 0
+            new_ws = ss.duplicate_sheet(source_sheet_id=prev_ws.id, insert_sheet_index=0, new_sheet_name=current_m)
+            print(f"  Duplicated '{prev_ws.title}' as '{current_m}' at index 0.")
         
         # Calculate number of columns
         total_col = len(new_ws.row_values(11))
@@ -201,7 +219,9 @@ def rollover_fm_sheet(sheet_id, fm_name, target_date, user_email):
     except Exception as e:
         print(f"Error rolling over FM sheet {sheet_id}: {e}")
 
-def update_boss_summary_sheets(registry, target_date):
+def update_boss_summary_sheets(registry, target_date, dry_run=False):
+    if dry_run:
+        print(f"\n[DRY-RUN] update_boss_summary_sheets({target_date}) would create/update Boss Summary tabs for {get_month_info(target_date)[0]}")
     current_m, prev_m, curr_days, prev_days = get_month_info(target_date)
     print(f"\n--- Updating Boss Summary Sheets for {current_m} ---")
     
@@ -360,14 +380,17 @@ def update_boss_summary_sheets(registry, target_date):
 def main():
     parser = argparse.ArgumentParser(description="Google Sheets Monthly Rollover Automation")
     parser.add_argument("--simulate-date", help="Simulation target date (YYYY-MM-DD)", default=None)
+    parser.add_argument("--dry-run", action="store_true", help="Preview what would happen without modifying anything")
+    parser.add_argument("--skip-boss", action="store_true", help="Skip Boss summary update")
+    parser.add_argument("--skip-fm", action="store_true", help="Skip FM sheet rollover")
     args = parser.parse_args()
     
     if args.simulate_date:
         target_date = datetime.datetime.strptime(args.simulate_date, "%Y-%m-%d").date()
-        print(f"SIMULATION RUN: Active Date set to {target_date}")
+        print(f"{'[DRY-RUN] ' if args.dry_run else ''}SIMULATION RUN: Active Date set to {target_date}")
     else:
         target_date = datetime.date.today()
-        print(f"NORMAL RUN: Active Date set to {target_date}")
+        print(f"{'[DRY-RUN] ' if args.dry_run else ''}NORMAL RUN: Active Date set to {target_date}")
         
     # Read Master Registry Sheet
     print("Reading Master Registry...")
@@ -391,12 +414,22 @@ def main():
         sheet_id = r.get('Sheet ID')
         fm_name = r.get('FM Name')
         if sheet_id and fm_name:
-            rollover_fm_sheet(sheet_id, fm_name, target_date, user_email)
-            time.sleep(1)
+            if args.skip_fm:
+                print(f"[SKIP-FM] {fm_name}")
+            else:
+                rollover_fm_sheet(sheet_id, fm_name, target_date, user_email, dry_run=args.dry_run)
+                if not args.dry_run:
+                    time.sleep(1)
             
     # Update Boss Summary Sheets
-    update_boss_summary_sheets(rows, target_date)
-    print("Monthly rollover run completed.")
+    if args.skip_boss:
+        print("[SKIP-BOSS] Boss Summary sheets not updated")
+    else:
+        if args.dry_run:
+            print(f"\n[DRY-RUN] Would update Boss Summary Sheets for {get_month_info(target_date)[0]}")
+        else:
+            update_boss_summary_sheets(rows, target_date)
+    print(f"{'[DRY-RUN] ' if args.dry_run else ''}Monthly rollover run completed.")
 
 if __name__ == "__main__":
     main()
