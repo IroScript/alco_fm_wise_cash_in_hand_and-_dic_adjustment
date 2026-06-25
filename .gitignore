@@ -6,6 +6,7 @@ __pycache__/
 .vscode/
 .idea/
 *.log
+.puku/
 verify_fm_sheet.py
 read_all_excel.py
 list_merges.py

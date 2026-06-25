@@ -449,9 +449,9 @@ def main():
     email_mappings = get_email_mappings()
     registry = []
     
-    # We will process first 3 for safe dry run verification
-    fms_to_process = list(valid_fms.keys())[:3]
-    print(f"Processing first {len(fms_to_process)} FMs for safety dry-run...")
+    # Process all valid FMs
+    fms_to_process = list(valid_fms.keys())
+    print(f"Processing all {len(fms_to_process)} FMs...")
     
     for fm_name in fms_to_process:
         fm_clean_name = fm_name.split(',')[0].strip()
@@ -468,6 +468,14 @@ def main():
         local_path = create_local_excel(fm_clean_name, fm_data)
         zone_folder_id = get_or_create_drive_folder(zone, PARENT_FOLDER_ID)
         
+        # Trash old FM sheet(s) with the same name before uploading
+        sheet_name = f"CASH IN HAND - {fm_clean_name}"
+        query = f"name = '{sheet_name}' and mimeType = 'application/vnd.google-apps.spreadsheet' and '{zone_folder_id}' in parents and trashed = false"
+        old_files = drive_service.files().list(q=query, spaces='drive', fields='files(id)').execute().get('files', [])
+        for old_file in old_files:
+            drive_service.files().update(fileId=old_file['id'], body={'trashed': True}).execute()
+            print(f"Trashed old sheet: {sheet_name} (ID: {old_file['id']})")
+        
         file_metadata = {
             'name': f"CASH IN HAND - {fm_clean_name}",
             'mimeType': 'application/vnd.google-apps.spreadsheet',
@@ -475,11 +483,27 @@ def main():
         }
         media = MediaFileUpload(local_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resumable=True)
         
-        uploaded_file = drive_service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id, webViewLink'
-        ).execute()
+        # Retry upload up to 3 times on timeout
+        uploaded_file = None
+        for attempt in range(3):
+            try:
+                media = MediaFileUpload(local_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resumable=True)
+                uploaded_file = drive_service.files().create(
+                    body=file_metadata,
+                    media_body=media,
+                    fields='id, webViewLink'
+                ).execute()
+                break
+            except Exception as e:
+                print(f"Upload attempt {attempt+1} failed: {e}")
+                if attempt < 2:
+                    time.sleep(5)
+                else:
+                    print(f"SKIPPING {fm_clean_name} after 3 failed attempts.")
+                    continue
+        
+        if not uploaded_file:
+            continue
         
         sheet_id = uploaded_file.get('id')
         web_link = uploaded_file.get('webViewLink')
