@@ -336,6 +336,108 @@ def lock_sheet(sheets_service, spreadsheet_id, sheet_id, owner_email, message="L
     except Exception as e:
         log_message(f"Error locking sheet ID {sheet_id}: {e}")
 
+# Tab Sorting & Dynamic Read-Only Protection Engine
+def sort_and_protect_spreadsheet_tabs(gc, sheets_service, sheet_id, editors_list=None, today_date=None):
+    try:
+        if today_date is None:
+            today_date = get_dhaka_today()
+        today_year = today_date.year
+        today_month = today_date.month
+
+        ss = gc.open_by_key(sheet_id)
+        worksheets = ss.worksheets()
+        
+        month_tabs = []
+        other_tabs = []
+        for ws in worksheets:
+            parsed = parse_month_str(ws.title)
+            if parsed:
+                month_tabs.append((parsed[0], parsed[1], ws))
+            else:
+                other_tabs.append(ws)
+                
+        # Sort month tabs descending by (year, month) so LATEST (newest/future) month comes FIRST (leftmost)!
+        month_tabs.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        sorted_worksheets = [x[2] for x in month_tabs] + other_tabs
+
+        requests = []
+        for idx, ws in enumerate(sorted_worksheets):
+            requests.append({
+                "updateSheetProperties": {
+                    "properties": {
+                        "sheetId": ws.id,
+                        "index": idx
+                    },
+                    "fields": "index"
+                }
+            })
+
+        meta = sheets_service.spreadsheets().get(
+            spreadsheetId=sheet_id,
+            fields="sheets(properties(sheetId,title),protectedRanges(protectedRangeId))"
+        ).execute()
+
+        for s_meta in meta.get('sheets', []):
+            s_id = s_meta['properties']['sheetId']
+            title = s_meta['properties']['title']
+            
+            for pr in s_meta.get('protectedRanges', []):
+                requests.append({"deleteProtectedRange": {"protectedRangeId": pr['protectedRangeId']}})
+                
+            parsed = parse_month_str(title)
+            if parsed:
+                yr, mo = parsed
+                is_old_month = (yr < today_year) or (yr == today_year and mo < today_month)
+                if is_old_month:
+                    # TOTAL READ ONLY -> ZERO UNPROTECTED RANGES
+                    requests.append({
+                        "addProtectedRange": {
+                            "protectedRange": {
+                                "range": {"sheetId": s_id},
+                                "description": f"ARCHIVED TOTAL READ ONLY ({title})",
+                                "warningOnly": False,
+                                "unprotectedRanges": [],
+                                "editors": {"users": []}
+                            }
+                        }
+                    })
+                else:
+                    try:
+                        ws_obj = ss.worksheet(title)
+                        row_11 = [str(x).strip().upper() for x in ws_obj.row_values(11)]
+                        try:
+                            t_col_idx = row_11.index("TOTAL CASH IN HAND") + 1
+                        except Exception:
+                            t_col_idx = 11
+                    except Exception:
+                        t_col_idx = 11
+                        
+                    _, num_days = calendar.monthrange(yr, mo)
+                    editors = [e for e in (editors_list or []) if e]
+                    requests.append({
+                        "addProtectedRange": {
+                            "protectedRange": {
+                                "range": {"sheetId": s_id},
+                                "description": f"Locked headers, dates and formula columns ({title})",
+                                "warningOnly": False,
+                                "unprotectedRanges": [{
+                                    "sheetId": s_id,
+                                    "startRowIndex": 17,
+                                    "endRowIndex": 17 + num_days,
+                                    "startColumnIndex": 2,
+                                    "endColumnIndex": t_col_idx - 1
+                                }],
+                                "editors": {"users": editors}
+                            }
+                        }
+                    })
+
+        if requests:
+            sheets_service.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={"requests": requests}).execute()
+        log_message(f"  ✔ Sorted tabs (latest first) & applied dynamic read-only protection for spreadsheet ID: {sheet_id}")
+    except Exception as e:
+        log_message(f"  Warning during tab sorting & locking for {sheet_id}: {e}")
+
 # Existing Sheet Detection Engine
 def check_existing_sheets_flow(gc, drive_service, selected_zones, target_month_str):
     log_message(f"Checking if sheets for {target_month_str} already exist in Google Drive...")
@@ -690,22 +792,6 @@ def execute_missing_markets_provisioning(gc, drive_service, sheets_service, miss
                 
                 editors_list = [e for e in [boss_email, sh_email] if e]
                 reqs = [{
-                    "addProtectedRange": {
-                        "protectedRange": {
-                            "range": {"sheetId": ws.id},
-                            "description": f"Locked headers, dates and formula columns for {fm_clean_name}",
-                            "warningOnly": False,
-                            "unprotectedRanges": [{
-                                "sheetId": ws.id,
-                                "startRowIndex": 17,
-                                "endRowIndex": 17 + num_days,
-                                "startColumnIndex": 2,
-                                "endColumnIndex": total_col_idx - 1
-                            }],
-                            "editors": {"users": editors_list}
-                        }
-                    }
-                }, {
                     "setDataValidation": {
                         "range": {
                             "sheetId": ws.id,
@@ -726,6 +812,7 @@ def execute_missing_markets_provisioning(gc, drive_service, sheets_service, miss
                     }
                 }]
                 sheets_service.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={"requests": reqs}).execute()
+                sort_and_protect_spreadsheet_tabs(gc, sheets_service, sheet_id, editors_list)
             except Exception as e:
                 log_message(f"Error locking cells for {fm_clean_name}: {e}")
 
@@ -1725,22 +1812,6 @@ def run_provisioning(selected_zones, month_str, num_days, dry_run=False, existin
             ws_api = ss_api.worksheet(month_str)
             editors_list = [e for e in [boss_email, sh_email] if e]
             validation_requests = [{
-                'addProtectedRange': {
-                    'protectedRange': {
-                        'range': {'sheetId': ws_api.id},
-                        'description': f'Locked headers, dates and formulas for {fm_name}',
-                        'warningOnly': False,
-                        'unprotectedRanges': [{
-                            'sheetId': ws_api.id,
-                            'startRowIndex': 17,
-                            'endRowIndex': 17 + num_days,
-                            'startColumnIndex': 2,
-                            'endColumnIndex': _total_col - 1
-                        }],
-                        'editors': {'users': editors_list}
-                    }
-                }
-            }, {
                 'setDataValidation': {
                     'range': {
                         'sheetId': ws_api.id,
@@ -1761,6 +1832,7 @@ def run_provisioning(selected_zones, month_str, num_days, dry_run=False, existin
                 }
             }]
             sheets_service.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={'requests': validation_requests}).execute()
+            sort_and_protect_spreadsheet_tabs(gc, sheets_service, sheet_id, editors_list)
         except Exception as ex:
             log_message(f"Non-fatal data validation setup error: {ex}")
 
@@ -2893,36 +2965,11 @@ class CashInHandApp(tk.Tk):
                     if sh_email and sh_email != fm_email:
                         share_file(drive_service, sheet_id, sh_email, role='reader')
                         
-                    # Apply cell locking
+                    # Apply cell locking and tab sorting
                     try:
-                        ss_api = gc.open_by_key(sheet_id)
-                        ws_api = ss_api.get_worksheet(0)
-                        row_11 = [str(x).strip().upper() for x in ws_api.row_values(11)]
-                        try:
-                            t_col_idx = row_11.index("TOTAL CASH IN HAND") + 1
-                        except Exception:
-                            t_col_idx = 11
-                        
                         editors_list = [e for e in [boss_email, sh_email] if e]
                         sheets_service = build('sheets', 'v4', credentials=creds)
-                        reqs = [{
-                            "addProtectedRange": {
-                                "protectedRange": {
-                                    "range": {"sheetId": ws_api.id},
-                                    "description": f"Locked headers, dates and formulas for {fm_name}",
-                                    "warningOnly": False,
-                                    "unprotectedRanges": [{
-                                        "sheetId": ws_api.id,
-                                        "startRowIndex": 17,
-                                        "endRowIndex": 48,
-                                        "startColumnIndex": 2,
-                                        "endColumnIndex": t_col_idx - 1
-                                    }],
-                                    "editors": {"users": editors_list}
-                                }
-                            }
-                        }]
-                        sheets_service.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={"requests": reqs}).execute()
+                        sort_and_protect_spreadsheet_tabs(gc, sheets_service, sheet_id, editors_list)
                     except Exception as l_ex:
                         self.gui_log(f"  Note during locking for {fm_name}: {l_ex}\n")
                         
