@@ -2887,6 +2887,8 @@ class CashInHandApp(tk.Tk):
         ]
         self.action_cb = ttk.Combobox(action_frame, textvariable=self.action_var, values=action_options, width=58, state="readonly", exportselection=False)
         self.action_cb.grid(row=0, column=1, padx=10, pady=8, sticky="w")
+        if action_options:
+            self.action_cb.current(0)
         
         ttk.Label(action_frame, text="Select Target Month:").grid(row=1, column=0, padx=10, pady=8, sticky="e")
         
@@ -2905,6 +2907,10 @@ class CashInHandApp(tk.Tk):
         self.month_var = tk.StringVar(value=def_month_str)
         self.month_cb = ttk.Combobox(action_frame, textvariable=self.month_var, values=month_list, width=15, state="readonly", exportselection=False)
         self.month_cb.grid(row=1, column=1, padx=10, pady=8, sticky="w")
+        if def_month_str in month_list:
+            self.month_cb.current(month_list.index(def_month_str))
+        elif month_list:
+            self.month_cb.current(0)
 
         # Settings Frame (Zone Selection)
         settings_frame = ttk.LabelFrame(self, text="Configuration Settings")
