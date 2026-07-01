@@ -158,7 +158,13 @@ def get_current_month_info(target_date=None):
 def fetch_master_data(gc):
     log_message("Fetching master data from Google Sheets (MPO/FM)...")
     sheet = gc.open_by_key(DATA_SHEET_ID)
-    ws = sheet.worksheet("MPO/FM")
+    ws = None
+    for w in sheet.worksheets():
+        if "MPO" in w.title.upper() or "FM" in w.title.upper():
+            ws = w
+            break
+    if ws is None:
+        ws = sheet.get_worksheet(0)
     rows = ws.get_all_values()
     
     fm_groups = {}
@@ -215,7 +221,13 @@ def fetch_master_data(gc):
 def get_email_mappings(gc):
     log_message("Fetching email mappings from Google Sheet...")
     sheet = gc.open_by_key(EMAIL_SHEET_ID)
-    ws = sheet.worksheet("EMAIL_2026")
+    ws = None
+    for w in sheet.worksheets():
+        if "EMAIL" in w.title.upper():
+            ws = w
+            break
+    if ws is None:
+        ws = sheet.get_worksheet(0)
     rows = ws.get_all_values()
     
     headers = [h.strip().upper() for h in rows[0]]
@@ -2704,13 +2716,18 @@ class CashInHandApp(tk.Tk):
         
         ttk.Label(action_frame, text="Select Target Month:").grid(row=1, column=0, padx=10, pady=8, sticky="e")
         
-        # Populate month names from JAN'25 to DEC'27
+        # Populate month names dynamically starting from current year up to next 3 years (no old unnecessary years)
+        today_dhaka = get_dhaka_today()
+        current_yr_full = today_dhaka.year
         month_list = []
-        for yr in [25, 26, 27]:
-            for m in ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']:
-                month_list.append(f"{m}'{yr}")
+        for yr_full in range(current_yr_full, current_yr_full + 4):
+            yr_short = str(yr_full)[2:]
+            for m_idx, m_name in enumerate(['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'], start=1):
+                if yr_full == current_yr_full and m_idx < today_dhaka.month:
+                    continue  # Skip passed months of current year as requested ("old months dorkar e nei")
+                month_list.append(f"{m_name}'{yr_short}")
         
-        def_month_str, _ = get_current_month_info(get_dhaka_today())
+        def_month_str, _ = get_current_month_info(today_dhaka)
         self.month_var = tk.StringVar(value=def_month_str)
         self.month_cb = ttk.Combobox(action_frame, textvariable=self.month_var, values=month_list, width=15, state="readonly", exportselection=False)
         self.month_cb.grid(row=1, column=1, padx=10, pady=8, sticky="w")
