@@ -25,7 +25,8 @@ CLIENT_SECRET_FILE = os.path.join(BASE_DIR, "FieldEdit", "client_secret_86610206
 TOKEN_FILE = os.path.join(BASE_DIR, "FieldEdit", "token.json")
 PARENT_FOLDER_ID = "1iOFeqywnIZ_yVclg_Em2U1npPtsokfGk"
 EMAIL_SHEET_ID = "1f5SFvhH8Bjb3OUlpof68teBktHuYyVELioxLv_KWXJo"
-DATA_SHEET_ID = "1ywTyruBLxNXz6pjsGgufNstb0hOsrM9P-ER65iVvqN8"  # Master Sheet with 450+ rows
+DATA_SHEET_ID = "1ywTyruBLxNXz6pjsGgufNstb0hOsrM9P-ER65iVvqN8"  # Operational Field Force Sheet
+COMPANY_MASTER_SHEET_ID = "1Q4utivZ5OpgDznqlqElYU-HWNnZYI71YYpcZKcSM3xY"  # Company Hardcoded Master Sheet for Sync Cross-Checking
 
 SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets',
@@ -260,6 +261,117 @@ def fetch_master_data(gc):
 
     log_message(f"Successfully loaded {len(valid_fms)} valid FMs from MPO/FM sheet.")
     return valid_fms
+
+# Company Master Sheet Cross-Checking Engine
+def fetch_company_master_data(gc):
+    log_message("Fetching Company Hardcoded Master Sheet for cross-checking...")
+    sheet = gc.open_by_key(COMPANY_MASTER_SHEET_ID)
+    ws = None
+    for w in sheet.worksheets():
+        if "FIELD" in w.title.upper() or "MPO" in w.title.upper() or "FM" in w.title.upper():
+            ws = w
+            break
+    if ws is None:
+        ws = sheet.get_worksheet(0)
+    rows = ws.get_all_values()
+    
+    headers = [str(h).strip().upper() for h in rows[0]] if rows else []
+    def get_col_idx(possible_names, fallback):
+        for n in possible_names:
+            for idx, h in enumerate(headers):
+                if n == h or (n in h and len(h) < len(n) + 8):
+                    return idx
+        return fallback
+
+    depot_col = get_col_idx(['DEPOT', 'DEPOT NAME'], 0)
+    zone_col = get_col_idx(['ZONE', 'ZONE NAME'], 1)
+    market_col = get_col_idx(['MARKET', 'MARKET NAME', 'TERRITORY'], 3)
+    fm_col = get_col_idx(['FM/AM, ZONE', 'FM/AM', 'FM NAME', 'AM NAME'], 7)
+
+    company_fms = {}
+    company_markets = set()
+    
+    for r in rows[1:]:
+        # CRITICAL RULE FROM USER: "NICHER DATA WILL NOT BE CONSIDERED IF A COLUMN IS ACTALLY BLANK.... MAANE MSTER FIELD FORCE ER NICHER DATA NEVBE NAA JODI A COLUMN BLANK THAKE JEMON A455 BLANK ER NICHER DATA IS NOT CONSIDERABLE"
+        if not r or len(r) <= depot_col or not str(r[depot_col]).strip():
+            break
+            
+        max_req_col = max([depot_col, zone_col, market_col, fm_col])
+        if len(r) <= max_req_col:
+            continue
+            
+        zone_str = str(r[zone_col]).strip().upper()
+        market_str = str(r[market_col]).strip()
+        fm_raw = str(r[fm_col]).strip()
+        if not fm_raw or not zone_str or not market_str:
+            continue
+            
+        fm_clean = clean_person_name(fm_raw, zone_str)
+        if fm_clean not in company_fms:
+            company_fms[fm_clean] = {'zone': zone_str, 'markets': set()}
+        company_fms[fm_clean]['markets'].add(market_str.upper())
+        company_markets.add((zone_str, market_str.upper()))
+        
+    return company_fms, company_markets
+
+def perform_company_master_sync_check(gc, selected_zones):
+    log_message("Cross-checking Operational Field Force with Company Hardcoded Master Sheet...")
+    try:
+        op_fms = fetch_master_data(gc)
+        op_fm_names = set(op_fms.keys())
+        op_markets = set()
+        for fm_name, f_data in op_fms.items():
+            if f_data['zone'] in selected_zones:
+                for mkt in f_data['markets']:
+                    op_markets.add((f_data['zone'], mkt['market_name'].strip().upper()))
+        
+        comp_fms, comp_markets = fetch_company_master_data(gc)
+        
+        missing_fms_in_op = []
+        for fm_name, c_data in comp_fms.items():
+            if c_data['zone'] in selected_zones and fm_name not in op_fm_names:
+                missing_fms_in_op.append(f"[{c_data['zone']}] {fm_name}")
+                
+        missing_markets_in_op = []
+        for z, m_name in comp_markets:
+            if z in selected_zones and (z, m_name) not in op_markets:
+                missing_markets_in_op.append(f"[{z}] {m_name}")
+                
+        if missing_fms_in_op or missing_markets_in_op:
+            warn_msg = "⚠️ MASTER SHEET SYNC DISCREPANCY DETECTED!\n\n"
+            warn_msg += "The following items were found in the Company Hardcoded Master Sheet but are MISSING from your Operational Field Force Sheet:\n\n"
+            if missing_fms_in_op:
+                warn_msg += f"• Missing FMs ({len(missing_fms_in_op)}):\n"
+                for m_fm in sorted(missing_fms_in_op)[:10]:
+                    warn_msg += f"  - {m_fm}\n"
+                if len(missing_fms_in_op) > 10:
+                    warn_msg += f"  ...and {len(missing_fms_in_op)-10} more.\n"
+                warn_msg += "\n"
+            if missing_markets_in_op:
+                warn_msg += f"• Missing Markets ({len(missing_markets_in_op)}):\n"
+                for m_mkt in sorted(missing_markets_in_op)[:15]:
+                    warn_msg += f"  - {m_mkt}\n"
+                if len(missing_markets_in_op) > 15:
+                    warn_msg += f"  ...and {len(missing_markets_in_op)-15} more.\n"
+                warn_msg += "\n"
+            warn_msg += "Please update your Operational Field Force Sheet to ensure consistency!\n\nDo you want to proceed with the system execution anyway?"
+            
+            log_message("\n" + "="*70)
+            log_message("⚠️ WARNING: COMPANY MASTER vs OPERATIONAL SHEET DISCREPANCY")
+            log_message(f"Missing FMs count: {len(missing_fms_in_op)} | Missing Markets count: {len(missing_markets_in_op)}")
+            for m_fm in sorted(missing_fms_in_op):
+                log_message(f"  [Missing FM] {m_fm}")
+            for m_mkt in sorted(missing_markets_in_op):
+                log_message(f"  [Missing Market] {m_mkt}")
+            log_message("="*70 + "\n")
+            
+            return messagebox.askyesno("⚠️ Master Sheet Sync Warning", warn_msg, icon="warning")
+        else:
+            log_message("✔ Operational Field Force is 100% in sync with Company Master Sheet.")
+            return True
+    except Exception as e:
+        log_message(f"Notice: Could not cross-check with Company Master Sheet ({e}). Proceeding...")
+        return True
 
 def get_email_mappings(gc):
     log_message("Fetching email mappings from Google Sheet...")
@@ -3130,6 +3242,12 @@ class CashInHandApp(tk.Tk):
                 drive_service = build('drive', 'v3', credentials=creds)
                 gc = gspread.authorize(creds)
                 sheets_service = build('sheets', 'v4', credentials=creds)
+
+                # Execute immediate Company Hardcoded Master vs Operational Sheet sync verification!
+                if not perform_company_master_sync_check(gc, zones):
+                    self.gui_log("\n❌ Execution paused/cancelled by user to update Operational Field Force Sheet.\n")
+                    self.run_btn.configure(state="normal")
+                    return
 
                 rollover_info = None
                 if mode == "rollover":
