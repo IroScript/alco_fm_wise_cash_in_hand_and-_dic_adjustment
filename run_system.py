@@ -154,6 +154,26 @@ def get_current_month_info(target_date=None):
     _, num_days = calendar.monthrange(year, month)
     return month_str, num_days
 
+# Universal Registry Header Lookup Helper
+def get_reg_col_indices(headers):
+    headers = [str(h).strip().upper() for h in headers] if headers else []
+    def get_c(possible, fall):
+        for p in possible:
+            for idx, h in enumerate(headers):
+                if p == h or (p in h and len(h) < len(p) + 8):
+                    return idx
+        return fall
+    return {
+        'fm': get_c(['FM NAME', 'FM/AM'], 0),
+        'zone': get_c(['ZONE'], 1),
+        'sheet_id': get_c(['SHEET ID', 'ID'], 2),
+        'url': get_c(['URL', 'LINK'], 3),
+        'fm_email': get_c(['FM EMAIL', 'EMAIL'], 4),
+        'boss_name': get_c(['BOSS NAME', 'SM NAME'], 5),
+        'boss_email': get_c(['BOSS EMAIL', 'SM/DSM MAIL'], 6),
+        'sh_email': get_c(['SH EMAIL', 'SH MAIL'], 7)
+    }
+
 # Google Sheets Data Fetcher
 def fetch_master_data(gc):
     log_message("Fetching master data from Google Sheets (MPO/FM)...")
@@ -167,20 +187,43 @@ def fetch_master_data(gc):
         ws = sheet.get_worksheet(0)
     rows = ws.get_all_values()
     
+    headers = [str(h).strip().upper() for h in rows[0]] if rows else []
+    def get_col_idx(possible_names, fallback):
+        for n in possible_names:
+            for idx, h in enumerate(headers):
+                if n == h or (n in h and len(h) < len(n) + 8):
+                    return idx
+        return fallback
+
+    depot_col = get_col_idx(['DEPOT', 'DEPOT NAME'], 0)
+    zone_col = get_col_idx(['ZONE', 'ZONE NAME'], 1)
+    market_col = get_col_idx(['MARKET', 'MARKET NAME', 'TERRITORY'], 2)
+    mpo_col = get_col_idx(['MPO', 'MPO NAME', 'MPO/AM'], 3)
+    fm_col = get_col_idx(['FM/AM, ZONE', 'FM/AM', 'FM NAME', 'AM NAME'], 4)
+    vacant_col = get_col_idx(['VACANT', 'VACANT STATUS'], 5)
+    desig_col = get_col_idx(['DESIG', 'DESIGNATION'], 6)
+    mpo_code_col = get_col_idx(['MPO CODE', 'MPO ID'], 7)
+    fm_code_col = get_col_idx(['FM CODE', 'FM ID', 'AM CODE'], 8)
+    
+    da_cols = [idx for idx, h in enumerate(headers) if 'DA' in h and ('NAME' in h or len(h) <= 5)]
+    if not da_cols:
+        da_cols = list(range(9, min(len(headers), 13))) if len(headers) > 9 else [9, 10, 11, 12]
+
     fm_groups = {}
     for r in rows[1:]:
-        if len(r) < 10:
+        max_req_col = max([depot_col, zone_col, market_col, mpo_col, fm_col, vacant_col, desig_col, mpo_code_col, fm_code_col])
+        if len(r) <= max_req_col:
             continue
-        depot = r[0]
-        zone = r[1]
-        market = r[2]
-        mpo_name = r[3]
-        fm_am_zone = r[4]
-        vacant = r[5]
-        desig = r[6]
-        mpo_code = r[7]
-        fm_code = r[8]
-        da_names = [name for name in r[9:13] if name and name.strip() and name.strip().upper() != 'VACANT']
+        depot = r[depot_col]
+        zone = r[zone_col]
+        market = r[market_col]
+        mpo_name = r[mpo_col]
+        fm_am_zone = r[fm_col]
+        vacant = r[vacant_col]
+        desig = r[desig_col]
+        mpo_code = r[mpo_code_col]
+        fm_code = r[fm_code_col]
+        da_names = [r[c] for c in da_cols if c < len(r) and r[c] and str(r[c]).strip() and str(r[c]).strip().upper() != 'VACANT']
 
         if not fm_am_zone or str(fm_am_zone).strip() == "":
             continue
@@ -230,13 +273,20 @@ def get_email_mappings(gc):
         ws = sheet.get_worksheet(0)
     rows = ws.get_all_values()
     
-    headers = [h.strip().upper() for h in rows[0]]
-    fm_col = headers.index('FM/AM, ZONE')
-    email_col = headers.index('EMAIL')
-    sh_email_col = headers.index('SH EMAIL') if 'SH EMAIL' in headers else -1
-    boss_email_col = headers.index('SM/DSM MAIL') if 'SM/DSM MAIL' in headers else -1
-    boss_name_col = headers.index('SM NAME') if 'SM NAME' in headers else -1
-    zone_col = headers.index('ZONE') if 'ZONE' in headers else -1
+    headers = [h.strip().upper() for h in rows[0]] if rows else []
+    def get_em_col(possible_names, fallback=-1):
+        for n in possible_names:
+            for idx, h in enumerate(headers):
+                if n == h or n in h:
+                    return idx
+        return fallback
+
+    fm_col = get_em_col(['FM/AM, ZONE', 'FM/AM', 'FM NAME'], 0)
+    email_col = get_em_col(['EMAIL', 'MAIL ID', 'FM EMAIL'], 1)
+    sh_email_col = get_em_col(['SH EMAIL', 'SH MAIL', 'RH EMAIL'], -1)
+    boss_email_col = get_em_col(['SM/DSM MAIL', 'BOSS EMAIL', 'SM MAIL', 'DSM MAIL', 'BOSS MAIL'], -1)
+    boss_name_col = get_em_col(['SM NAME', 'BOSS NAME', 'DSM NAME'], -1)
+    zone_col = get_em_col(['ZONE', 'ZONE NAME'], -1)
 
     sh_by_zone = {}
     for r in rows[1:]:
@@ -467,10 +517,13 @@ def check_existing_sheets_flow(gc, drive_service, selected_zones, target_month_s
         if len(reg_rows) < 2:
             return False
             
+        reg_cols = get_reg_col_indices(reg_rows[0])
+        z_col, sid_col = reg_cols['zone'], reg_cols['sheet_id']
+        
         # Check first matching FM sheet in selected zones
         for r in reg_rows[1:]:
-            if len(r) > 2 and r[1] in selected_zones and r[2]:
-                sheet_id = r[2]
+            if len(r) > max(z_col, sid_col) and r[z_col] in selected_zones and r[sid_col]:
+                sheet_id = r[sid_col]
                 try:
                     ss = gc.open_by_key(sheet_id)
                     for ws in ss.worksheets():
@@ -638,19 +691,23 @@ def check_for_changed_emails(gc, drive_service, selected_zones, backups_info=Non
         if len(reg_rows) < 2:
             return [], reg_ws, reg_rows
 
+        reg_cols = get_reg_col_indices(reg_rows[0]) if reg_rows else {}
+        fm_col, z_col, sid_col = reg_cols.get('fm', 0), reg_cols.get('zone', 1), reg_cols.get('sheet_id', 2)
+        fme_col, bosse_col, she_col = reg_cols.get('fm_email', 4), reg_cols.get('boss_email', 6), reg_cols.get('sh_email', 7)
+
         changed_items = []
         for idx, r in enumerate(reg_rows[1:], start=2):
-            if len(r) < 3:
+            if len(r) <= max(fm_col, z_col, sid_col):
                 continue
-            fm_name = r[0]
-            zone = r[1]
-            sheet_id = r[2]
+            fm_name = r[fm_col]
+            zone = r[z_col]
+            sheet_id = r[sid_col]
             if zone not in selected_zones:
                 continue
                 
-            old_fm_email = r[4].strip() if len(r) > 4 else ''
-            old_boss_email = r[6].strip() if len(r) > 6 else ''
-            old_sh_email = r[7].strip() if len(r) > 7 else ''
+            old_fm_email = r[fme_col].strip() if len(r) > fme_col else ''
+            old_boss_email = r[bosse_col].strip() if len(r) > bosse_col else ''
+            old_sh_email = r[she_col].strip() if len(r) > she_col else ''
             
             mapping = lookup_email_mapping(email_mappings, fm_name, zone, sh_by_zone)
             new_fm_email = mapping['email'].strip()
@@ -740,9 +797,11 @@ def check_for_missing_markets(gc, drive_service, selected_zones, backups_info=No
             reg_sheet = gc.open_by_key(files[0]['id'])
             reg_ws = reg_sheet.get_worksheet(0)
             reg_rows = reg_ws.get_all_values()
+            reg_cols = get_reg_col_indices(reg_rows[0]) if reg_rows else {}
+            fm_col = reg_cols.get('fm', 0)
             for r in reg_rows[1:]:
-                if r:
-                    existing_fm_names.add(r[0].strip().upper())
+                if len(r) > fm_col and r[fm_col]:
+                    existing_fm_names.add(r[fm_col].strip().upper())
                     
         missing_fms = []
         for fm_name, fm_data in valid_fms.items():
@@ -2291,15 +2350,18 @@ def run_deletion_process(target, scope, month_name, selected_zones, selected_per
             log_message("Master Registry is empty. Nothing to delete.")
             return
             
+        reg_cols = get_reg_col_indices(reg_rows[0]) if reg_rows else {}
+        fm_col, z_col, sid_col = reg_cols.get('fm', 0), reg_cols.get('zone', 1), reg_cols.get('sheet_id', 2)
+        
         deleted_count = 0
         rows_to_delete_from_registry = []
         
         for idx, r in enumerate(reg_rows[1:], start=2):
-            if len(r) < 3:
+            if len(r) <= max(fm_col, z_col, sid_col):
                 continue
-            fm_name = r[0].strip().upper()
-            zone = r[1].strip()
-            sheet_id = r[2].strip()
+            fm_name = r[fm_col].strip().upper()
+            zone = r[z_col].strip()
+            sheet_id = r[sid_col].strip()
             
             # Check scope match
             if scope == "zones" and zone not in selected_zones:
@@ -3088,7 +3150,9 @@ class CashInHandApp(tk.Tk):
                         self.run_btn.configure(state="normal")
                         return
                         
-                    first_sheet_id = reg_rows[1][2]
+                    reg_cols = get_reg_col_indices(reg_rows[0]) if reg_rows else {}
+                    sid_col = reg_cols.get('sheet_id', 2)
+                    first_sheet_id = reg_rows[1][sid_col] if len(reg_rows[1]) > sid_col else reg_rows[1][2]
                     ss = gc.open_by_key(first_sheet_id)
                     worksheets = ss.worksheets()
                     
