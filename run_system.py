@@ -97,16 +97,24 @@ def get_oauth_credentials():
     return creds
 
 # String Cleaners
-def clean_person_name(name):
+def clean_person_name(name, zone=None):
     if not name:
         return ""
-    name = str(name).strip()
-    if ',' in name:
-        name = name.split(',')[0].strip()
+    name = str(name).strip().upper()
     name = re.sub(r'^(MR|MD|MRS|MST|DR)\.?\s*', '', name, flags=re.IGNORECASE)
     name = re.sub(r'\b(MR|MD|MRS|MST|DR)\.?\s+', '', name, flags=re.IGNORECASE)
+    if zone:
+        z = str(zone).strip().upper()
+        if name.endswith(',' + z):
+            name = name[:-len(',' + z)].strip()
+        elif name.endswith(', ' + z):
+            name = name[:-len(', ' + z)].strip()
+        elif name.endswith('(' + z + ')'):
+            name = name[:-len('(' + z + ')')].strip()
+    elif ',' in name and 'VACANT' not in name and 'SH' not in name and 'ARM' not in name and 'RSM' not in name:
+        name = name.split(',')[0].strip()
     name = re.sub(r'\s+', ' ', name)
-    return name.strip().upper()
+    return name.strip()
 
 # Date / Month Parsing & Calculations
 def parse_month_str(m_str):
@@ -172,12 +180,7 @@ def fetch_master_data(gc):
             continue
 
         fm_am_zone = str(fm_am_zone).strip()
-        if ',' in fm_am_zone:
-            parts = fm_am_zone.split(',')
-            cleaned_fm_part = clean_person_name(parts[0])
-            fm_am_zone_clean = f"{cleaned_fm_part}, {parts[1].strip()}"
-        else:
-            fm_am_zone_clean = clean_person_name(fm_am_zone)
+        fm_am_zone_clean = clean_person_name(fm_am_zone, zone)
         
         if fm_am_zone_clean not in fm_groups:
             fm_groups[fm_am_zone_clean] = {
@@ -236,23 +239,39 @@ def get_email_mappings(gc):
         if len(r) <= fm_col or not r[fm_col]:
             continue
         fm_full = str(r[fm_col]).strip()
-        fm_name = fm_full.split(',')[0].strip().upper()
-        fm_name_clean = clean_person_name(fm_name)
         zone = str(r[zone_col]).strip().upper() if zone_col != -1 and len(r) > zone_col else ""
+        fm_name_clean = clean_person_name(fm_full, zone)
         
         email = str(r[email_col]).strip() if len(r) > email_col else ""
         boss_email = str(r[boss_email_col]).strip() if boss_email_col != -1 and len(r) > boss_email_col else ""
         boss_name = str(r[boss_name_col]).strip() if boss_name_col != -1 and len(r) > boss_name_col else ""
         sh_email = sh_by_zone.get(zone, "")
         
-        mappings[fm_name_clean] = {
+        val = {
             'email': email,
             'boss_email': boss_email,
             'boss_name': boss_name,
             'sh_email': sh_email,
             'zone': zone
         }
+        if zone:
+            mappings[f"{zone}___{fm_name_clean}"] = val
+        if fm_name_clean not in mappings or ('VACANT' not in fm_name_clean and fm_name_clean not in ['SH', 'ARM', 'RSM']):
+            mappings[fm_name_clean] = val
     return mappings, sh_by_zone
+
+def lookup_email_mapping(email_mappings, fm_name, zone=None, sh_by_zone=None):
+    cn = clean_person_name(fm_name, zone)
+    if zone:
+        z = str(zone).strip().upper()
+        res = email_mappings.get(f"{z}___{cn}")
+        if res:
+            return res
+        if sh_by_zone and cn == 'SH' and z in sh_by_zone:
+            return {'email': sh_by_zone[z], 'boss_email': '', 'boss_name': '', 'sh_email': sh_by_zone[z], 'zone': z}
+        if 'VACANT' in cn or cn in ['SH', 'ARM', 'RSM']:
+            return {'email': '', 'boss_email': '', 'boss_name': '', 'sh_email': sh_by_zone.get(z, '') if sh_by_zone else '', 'zone': z}
+    return email_mappings.get(cn, {'email': '', 'boss_email': '', 'boss_name': '', 'sh_email': '', 'zone': ''})
 
 # Drive API Helper
 def get_or_create_drive_folder(drive_service, name, parent_id):
@@ -519,7 +538,7 @@ def check_for_changed_emails(gc, drive_service, selected_zones, backups_info=Non
             old_boss_email = r[6].strip() if len(r) > 6 else ''
             old_sh_email = r[7].strip() if len(r) > 7 else ''
             
-            mapping = email_mappings.get(clean_person_name(fm_name), {'email': '', 'boss_email': '', 'boss_name': '', 'sh_email': ''})
+            mapping = lookup_email_mapping(email_mappings, fm_name, zone, sh_by_zone)
             new_fm_email = mapping['email'].strip()
             new_boss_email = mapping['boss_email'].strip()
             new_sh_email = mapping.get('sh_email', '').strip() or sh_by_zone.get(zone, '').strip()
@@ -630,7 +649,7 @@ def execute_missing_markets_provisioning(gc, drive_service, sheets_service, miss
         new_registry_entries = []
         for fm_clean_name, fm_data in missing_fms:
             zone = fm_data['zone']
-            mapping = email_mappings.get(clean_person_name(fm_clean_name), {'email': '', 'boss_email': '', 'boss_name': '', 'sh_email': ''})
+            mapping = lookup_email_mapping(email_mappings, fm_clean_name, zone, sh_by_zone)
             fm_email = mapping['email']
             boss_email = mapping['boss_email']
             boss_name = mapping['boss_name']
@@ -1584,8 +1603,8 @@ def run_provisioning(selected_zones, month_str, num_days, dry_run=False, existin
 
     for fm_name, fm_data in filtered_fms.items():
         zone = fm_data['zone']
-        fm_clean_name = clean_person_name(fm_name)
-        mapping = email_mappings.get(fm_clean_name, {'email': '', 'boss_email': '', 'boss_name': '', 'sh_email': ''})
+        fm_clean_name = clean_person_name(fm_name, zone)
+        mapping = lookup_email_mapping(email_mappings, fm_name, zone, sh_by_zone)
         fm_email = mapping['email']
         boss_email = mapping['boss_email']
         boss_name = mapping['boss_name']
@@ -2853,8 +2872,8 @@ class CashInHandApp(tk.Tk):
                 if zone not in selected_zones:
                     continue
                     
-                fm_clean = clean_person_name(fm_name)
-                mapping = email_mappings.get(fm_clean, {'email': '', 'boss_email': '', 'boss_name': '', 'sh_email': ''})
+                fm_clean = clean_person_name(fm_name, zone)
+                mapping = lookup_email_mapping(email_mappings, fm_name, zone, sh_by_zone)
                 fm_email = mapping['email']
                 boss_email = mapping['boss_email']
                 sh_email = mapping.get('sh_email', '') or sh_by_zone.get(zone, '')
