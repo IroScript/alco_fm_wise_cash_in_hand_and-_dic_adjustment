@@ -286,7 +286,9 @@ def fetch_company_master_data(gc):
     depot_col = get_col_idx(['DEPOT', 'DEPOT NAME'], 0)
     zone_col = get_col_idx(['ZONE', 'ZONE NAME'], 1)
     market_col = get_col_idx(['MARKET', 'MARKET NAME', 'TERRITORY'], 3)
+    mpo_col = get_col_idx(['MPO', 'MPO NAME', 'RX CODE', 'OLD CODE'], 6)
     fm_col = get_col_idx(['FM/AM, ZONE', 'FM/AM', 'FM NAME', 'AM NAME'], 7)
+    vacant_col = get_col_idx(['VACANT', 'VACANT STATUS', "VACANT (JUN'26)?", "VACANT (JAN'26)?"], 8)
 
     company_fms = {}
     company_markets = set()
@@ -306,6 +308,12 @@ def fetch_company_master_data(gc):
         if not fm_raw or not zone_str or not market_str:
             continue
             
+        vacant_val = str(r[vacant_col]).strip().upper() if len(r) > vacant_col else ''
+        mpo_val = str(r[mpo_col]).strip() if len(r) > mpo_col else ''
+        is_vacant = (vacant_val == 'Y') or (mpo_val and 'vacant' in mpo_val.lower()) or 'vacant' in fm_raw.lower()
+        if is_vacant:
+            continue
+            
         fm_clean = clean_person_name(fm_raw, zone_str)
         if fm_clean not in company_fms:
             company_fms[fm_clean] = {'zone': zone_str, 'markets': set()}
@@ -323,7 +331,8 @@ def perform_company_master_sync_check(gc, selected_zones):
         for fm_name, f_data in op_fms.items():
             if f_data['zone'] in selected_zones:
                 for mkt in f_data['markets']:
-                    op_markets.add((f_data['zone'], mkt['market_name'].strip().upper()))
+                    if not mkt.get('is_vacant'):
+                        op_markets.add((f_data['zone'], mkt['market_name'].strip().upper()))
         
         comp_fms, comp_markets = fetch_company_master_data(gc)
         
@@ -2833,8 +2842,9 @@ class CashInHandApp(tk.Tk):
         self.style.configure(".", background="#060816", foreground="#CBD5E1")
         self.style.configure("TLabel", background="#060816", foreground="#CBD5E1", font=("Segoe UI", 10))
         self.style.configure("TButton", background="#0F172A", foreground="#00F2FE", font=("Segoe UI", 10, "bold"))
-        self.style.map("TButton", background=[("active", "#1E293B")], foreground=[("active", "#00F2FE")])
         self.style.configure("TFrame", background="#060816")
+        self.style.configure("TCombobox", fieldbackground="#0F172A", background="#0F172A", foreground="#00F2FE", font=("Segoe UI", 10, "bold"))
+        self.style.map("TCombobox", fieldbackground=[("readonly", "#0F172A")], foreground=[("readonly", "#00F2FE")], selectbackground=[("readonly", "#00F2FE")], selectforeground=[("readonly", "#060816")])
         
         # Set global log callback
         global log_callback
