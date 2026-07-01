@@ -2710,7 +2710,8 @@ class CashInHandApp(tk.Tk):
             for m in ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']:
                 month_list.append(f"{m}'{yr}")
         
-        self.month_var = tk.StringVar(value="AUG'26")
+        def_month_str, _ = get_current_month_info(get_dhaka_today())
+        self.month_var = tk.StringVar(value=def_month_str)
         self.month_cb = ttk.Combobox(action_frame, textvariable=self.month_var, values=month_list, width=15, state="readonly", exportselection=False)
         self.month_cb.grid(row=1, column=1, padx=10, pady=8, sticky="w")
 
@@ -2725,7 +2726,7 @@ class CashInHandApp(tk.Tk):
         zone_container = tk.Frame(settings_frame, bg="#0F172A")
         zone_container.grid(row=0, column=1, padx=10, pady=5, sticky="w")
         
-        self.all_zones_var = tk.BooleanVar(value=False)
+        self.all_zones_var = tk.BooleanVar(value=True)
         self.all_zones_chk = tk.Checkbutton(zone_container, text="☑ ALL ZONES (Select / Deselect All)", variable=self.all_zones_var, fg="#00F2FE", bg="#0F172A", selectcolor="#060816", font=("Segoe UI", 9, "bold"), command=self.toggle_all_zones)
         self.all_zones_chk.pack(anchor="w", pady=2)
         
@@ -2739,10 +2740,8 @@ class CashInHandApp(tk.Tk):
         for z in all_zones:
             self.zone_listbox.insert(tk.END, z)
             
-        # Select CTG.A and CTG.B by default for testing
-        for idx, z in enumerate(self.zone_listbox.get(0, tk.END)):
-            if z in ['CTG.A', 'CTG.B']:
-                self.zone_listbox.select_set(idx)
+        # Select ALL zones by default
+        self.zone_listbox.select_set(0, tk.END)
 
         # Action Buttons
         btn_frame = ttk.Frame(self)
