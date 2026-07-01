@@ -239,7 +239,7 @@ def fetch_master_data(gc):
                 'markets': []
             }
         
-        is_vacant = (vacant == 'Y') or (mpo_name and 'vacant' in str(mpo_name).lower())
+        is_vacant = (str(vacant).strip().upper() == 'Y')
         mpo_clean = 'VACANT' if is_vacant else clean_person_name(mpo_name)
         da_clean = clean_person_name(da_names[0]) if da_names else None
         
@@ -286,7 +286,6 @@ def fetch_company_master_data(gc):
     depot_col = get_col_idx(['DEPOT', 'DEPOT NAME'], 0)
     zone_col = get_col_idx(['ZONE', 'ZONE NAME'], 1)
     market_col = get_col_idx(['MARKET', 'MARKET NAME', 'TERRITORY'], 3)
-    mpo_col = get_col_idx(['MPO', 'MPO NAME', 'RX CODE', 'OLD CODE'], 6)
     fm_col = get_col_idx(['FM/AM, ZONE', 'FM/AM', 'FM NAME', 'AM NAME'], 7)
     vacant_col = get_col_idx(['VACANT', 'VACANT STATUS', "VACANT (JUN'26)?", "VACANT (JAN'26)?"], 8)
 
@@ -309,8 +308,7 @@ def fetch_company_master_data(gc):
             continue
             
         vacant_val = str(r[vacant_col]).strip().upper() if len(r) > vacant_col else ''
-        mpo_val = str(r[mpo_col]).strip() if len(r) > mpo_col else ''
-        is_vacant = (vacant_val == 'Y') or (mpo_val and 'vacant' in mpo_val.lower()) or 'vacant' in fm_raw.lower()
+        is_vacant = (vacant_val == 'Y')
         if is_vacant:
             continue
             
