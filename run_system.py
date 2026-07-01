@@ -101,6 +101,8 @@ def clean_person_name(name):
     if not name:
         return ""
     name = str(name).strip()
+    if ',' in name:
+        name = name.split(',')[0].strip()
     name = re.sub(r'^(MR|MD|MRS|MST|DR)\.?\s*', '', name, flags=re.IGNORECASE)
     name = re.sub(r'\b(MR|MD|MRS|MST|DR)\.?\s+', '', name, flags=re.IGNORECASE)
     name = re.sub(r'\s+', ' ', name)
@@ -667,7 +669,24 @@ def execute_missing_markets_provisioning(gc, drive_service, sheets_service, miss
                 except Exception:
                     total_col_idx = 11
                 
-                req = {
+                editors_list = [e for e in [boss_email, sh_email] if e]
+                reqs = [{
+                    "addProtectedRange": {
+                        "protectedRange": {
+                            "range": {"sheetId": ws.id},
+                            "description": f"Locked headers, dates and formula columns for {fm_clean_name}",
+                            "warningOnly": False,
+                            "unprotectedRanges": [{
+                                "sheetId": ws.id,
+                                "startRowIndex": 17,
+                                "endRowIndex": 17 + num_days,
+                                "startColumnIndex": 2,
+                                "endColumnIndex": total_col_idx - 1
+                            }],
+                            "editors": {"users": editors_list}
+                        }
+                    }
+                }, {
                     "setDataValidation": {
                         "range": {
                             "sheetId": ws.id,
@@ -686,8 +705,8 @@ def execute_missing_markets_provisioning(gc, drive_service, sheets_service, miss
                             "showCustomUi": True
                         }
                     }
-                }
-                sheets_service.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={"requests": [req]}).execute()
+                }]
+                sheets_service.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={"requests": reqs}).execute()
             except Exception as e:
                 log_message(f"Error locking cells for {fm_clean_name}: {e}")
 
@@ -921,14 +940,45 @@ def create_local_excel(fm_name, fm_data, month_str, num_days):
             ws.cell(row=r, column=col).fill = fill_navy
             ws.cell(row=r, column=col).border = bd_hdr
             
-    # Date Label Header in Row 11
-    ws.merge_cells(start_row=11, start_column=2, end_row=11, end_column=3)
-    ws.cell(row=11, column=2, value="DATE").font = font_date
-    ws.cell(row=11, column=2).alignment = align_center
-    ws.cell(row=11, column=2).fill = fill_za
-    ws.cell(row=11, column=2).border = bd_hdr
-    ws.cell(row=11, column=3).fill = fill_za
-    ws.cell(row=11, column=3).border = bd_hdr
+    # Date Label Header in Column B (Row 11 to 17)
+    ws.merge_cells(start_row=11, start_column=2, end_row=17, end_column=2)
+    c_date_h = ws.cell(row=11, column=2, value="DATE")
+    c_date_h.font = font_date
+    c_date_h.alignment = align_center
+    for r in range(11, 18):
+        ws.cell(row=r, column=2).fill = fill_za
+        ws.cell(row=r, column=2).border = bd_hdr
+
+    # Column C: FM SELF Header & Metadata (Rows 5 to 17)
+    ws.cell(row=5, column=3).fill = fill_mid
+    ws.cell(row=5, column=3).border = bd_hdr
+
+    ws.cell(row=6, column=3, value=zone).font = font_sub
+    ws.cell(row=7, column=3, value=fm_name).font = font_sub
+    for r in range(6, 11):
+        ws.cell(row=r, column=3).fill = fill_navy
+        ws.cell(row=r, column=3).border = bd_hdr
+        ws.cell(row=r, column=3).alignment = align_center
+
+    c_fmself = ws.cell(row=11, column=3, value="FM SELF")
+    c_fmself.font = font_name
+    c_fmself.fill = fill_navy
+    c_fmself.alignment = align_center
+    c_fmself.border = bd_hdr
+
+    ws.cell(row=12, column=3).fill = fill_mid
+    ws.cell(row=12, column=3).border = bd_hdr
+
+    ws.cell(row=13, column=3, value=zone).font = font_sub
+    ws.cell(row=14, column=3, value=fm_name).font = font_sub
+    ws.cell(row=15, column=3, value="FM").font = font_sub
+    ws.cell(row=16, column=3, value="").font = font_sub
+    ws.cell(row=17, column=3, value="SELF").font = font_sub
+    for r in range(13, 18):
+        ws.cell(row=r, column=3).fill = fill_navy
+        ws.cell(row=r, column=3).border = bd_hdr
+        ws.cell(row=r, column=3).alignment = align_center
+    ws.column_dimensions['C'].width = 14
     
     # Fill actual date values and formula cells
     for idx, d_val in enumerate(dates):
@@ -1534,7 +1584,8 @@ def run_provisioning(selected_zones, month_str, num_days, dry_run=False, existin
 
     for fm_name, fm_data in filtered_fms.items():
         zone = fm_data['zone']
-        mapping = email_mappings.get(clean_person_name(fm_name), {'email': '', 'boss_email': '', 'boss_name': '', 'sh_email': ''})
+        fm_clean_name = clean_person_name(fm_name)
+        mapping = email_mappings.get(fm_clean_name, {'email': '', 'boss_email': '', 'boss_name': '', 'sh_email': ''})
         fm_email = mapping['email']
         boss_email = mapping['boss_email']
         boss_name = mapping['boss_name']
@@ -1653,7 +1704,24 @@ def run_provisioning(selected_zones, month_str, num_days, dry_run=False, existin
             # Add strict data validation
             ss_api = gc.open_by_key(sheet_id)
             ws_api = ss_api.worksheet(month_str)
+            editors_list = [e for e in [boss_email, sh_email] if e]
             validation_requests = [{
+                'addProtectedRange': {
+                    'protectedRange': {
+                        'range': {'sheetId': ws_api.id},
+                        'description': f'Locked headers, dates and formulas for {fm_name}',
+                        'warningOnly': False,
+                        'unprotectedRanges': [{
+                            'sheetId': ws_api.id,
+                            'startRowIndex': 17,
+                            'endRowIndex': 17 + num_days,
+                            'startColumnIndex': 2,
+                            'endColumnIndex': _total_col - 1
+                        }],
+                        'editors': {'users': editors_list}
+                    }
+                }
+            }, {
                 'setDataValidation': {
                     'range': {
                         'sheetId': ws_api.id,
@@ -2229,7 +2297,7 @@ class DeleteWizardDialog(tk.Toplevel):
         load_btn = tk.Button(self.person_frame, text="🔄 Load Field Person List", bg="#0F172A", fg="#00F2FE", font=("Segoe UI", 8, "bold"), command=self.load_persons)
         load_btn.pack(anchor="w", pady=3)
         
-        self.person_listbox = tk.Listbox(self.person_frame, selectmode="multiple", bg="#0F172A", fg="#CBD5E1", selectbackground="#F87171", selectforeground="#FFFFFF", height=5)
+        self.person_listbox = tk.Listbox(self.person_frame, selectmode="multiple", bg="#0F172A", fg="#CBD5E1", selectbackground="#F87171", selectforeground="#FFFFFF", height=5, exportselection=False)
         self.person_listbox.pack(fill="both", expand=True, pady=3)
         self.person_frame.pack_forget()
         
@@ -2376,6 +2444,8 @@ class UnifiedDeltaDialog(tk.Toplevel):
         self.configure(bg="#0F172A")
         self.transient(parent)
         self.grab_set() # Modal blocking
+        self.existing_found = existing_found
+        self.target_month = target_month
         
         self.result = {"confirmed": False, "existing_action": "overwrite", "do_missing": True, "do_emails": True, "do_rollover": True}
         
@@ -2438,7 +2508,7 @@ class UnifiedDeltaDialog(tk.Toplevel):
             inf_frame.pack(fill="both", expand=True, pady=15)
             tk.Label(inf_frame, text="✅ All pre-checks passed! No existing conflicts or missing deltas found.\n\nClick Proceed to start generating sheets.", fg="#34D399", bg="#060816", font=("Segoe UI", 11, "bold")).pack(pady=25)
 
-        # Bottom Action Buttons
+        # Buttons
         btn_frame = tk.Frame(self, bg="#0F172A")
         btn_frame.pack(fill="x", pady=15)
         
@@ -2449,8 +2519,19 @@ class UnifiedDeltaDialog(tk.Toplevel):
         canc_btn.pack(side="right", padx=25)
         
     def on_proceed(self):
+        selected_act = self.exist_var.get()
+        if self.existing_found and selected_act in ["overwrite", "delete"]:
+            ans = messagebox.askyesno(
+                "WARNING: OVERRIDE / REPLACE EXISTING DATA",
+                f"ARE YOU SURE?\n\nYou selected to '{selected_act.upper()}' existing sheets for {self.target_month}.\n\nWARNING: OLD DATA WILL BE DELETED AND REPLACED!\n\nClick YES to proceed with replacement.\nClick NO to cancel replacement and IGNORE existing sheets.",
+                icon='warning'
+            )
+            if not ans:
+                selected_act = "skip"
+                messagebox.showinfo("Action Ignored", f"Existing sheets for {self.target_month} will be IGNORED (Skipped). No data will be replaced.")
+        
         self.result["confirmed"] = True
-        self.result["existing_action"] = self.exist_var.get()
+        self.result["existing_action"] = selected_act
         self.result["do_missing"] = self.miss_var.get()
         self.result["do_emails"] = self.em_var.get()
         if hasattr(self, "roll_var"):
@@ -2527,7 +2608,7 @@ class CashInHandApp(tk.Tk):
             "🔴 DELETE MONTH TAB (Delete selected month from workbooks)",
             "🔵 ARCHIVE & LOCK PREV MONTH / ROLLOVER (Freeze old data & start new)"
         ]
-        self.action_cb = ttk.Combobox(action_frame, textvariable=self.action_var, values=action_options, width=58, state="readonly")
+        self.action_cb = ttk.Combobox(action_frame, textvariable=self.action_var, values=action_options, width=58, state="readonly", exportselection=False)
         self.action_cb.grid(row=0, column=1, padx=10, pady=8, sticky="w")
         
         ttk.Label(action_frame, text="Select Target Month:").grid(row=1, column=0, padx=10, pady=8, sticky="e")
@@ -2539,19 +2620,27 @@ class CashInHandApp(tk.Tk):
                 month_list.append(f"{m}'{yr}")
         
         self.month_var = tk.StringVar(value="AUG'26")
-        self.month_cb = ttk.Combobox(action_frame, textvariable=self.month_var, values=month_list, width=15, state="readonly")
+        self.month_cb = ttk.Combobox(action_frame, textvariable=self.month_var, values=month_list, width=15, state="readonly", exportselection=False)
         self.month_cb.grid(row=1, column=1, padx=10, pady=8, sticky="w")
 
         # Settings Frame (Zone Selection)
         settings_frame = ttk.LabelFrame(self, text="Configuration Settings")
         settings_frame.pack(fill="x", padx=20, pady=5)
         
-        # Zone selection list (Multi-select)
+        # Zone selection list (Multi-select) with Checkbox container
         zone_lbl = ttk.Label(settings_frame, text="Select Zones to Process (Hold Ctrl for multiple):")
         zone_lbl.grid(row=0, column=0, padx=10, pady=5, sticky="ne")
         
-        self.zone_listbox = tk.Listbox(settings_frame, selectmode="multiple", bg="#0F172A", fg="#CBD5E1", selectbackground="#00F2FE", selectforeground="#060816", height=5)
-        self.zone_listbox.grid(row=0, column=1, padx=10, pady=5, sticky="w")
+        zone_container = tk.Frame(settings_frame, bg="#0F172A")
+        zone_container.grid(row=0, column=1, padx=10, pady=5, sticky="w")
+        
+        self.all_zones_var = tk.BooleanVar(value=False)
+        self.all_zones_chk = tk.Checkbutton(zone_container, text="☑ ALL ZONES (Select / Deselect All)", variable=self.all_zones_var, fg="#00F2FE", bg="#0F172A", selectcolor="#060816", font=("Segoe UI", 9, "bold"), command=self.toggle_all_zones)
+        self.all_zones_chk.pack(anchor="w", pady=2)
+        
+        self.zone_listbox = tk.Listbox(zone_container, selectmode="multiple", bg="#0F172A", fg="#CBD5E1", selectbackground="#00F2FE", selectforeground="#060816", height=5, exportselection=False)
+        self.zone_listbox.pack(fill="both", expand=True, pady=2)
+        self.zone_listbox.bind("<<ListboxSelect>>", self.on_zone_select)
         
         # Pre-populate all 24 zones
         all_zones = ['DK.A', 'FENI', 'RAJ', 'HATIB.FM', 'MAIZ', 'JSR+KHL', 'JSR.B', 'NSD', 'TANG', 'DK.B', 'BARI', 'MYM.A', 'JPUR', 'RNG.A1', 'HOBI', 'COM', 'JSR.C', 'GAIB', 'MYM1.AM', 'CTG.B', 'THAK+DNJ', 'SLT', 'FRD', 'CTG.A']
@@ -2577,6 +2666,9 @@ class CashInHandApp(tk.Tk):
         fix_form_btn = tk.Button(btn_frame, text="🔧 FIX FORMULAS / FORMATTING", bg="#3B82F6", fg="#FFFFFF", font=("Segoe UI", 9, "bold"), padx=10, pady=4, cursor="hand2", command=self.fix_formulas_in_selected_zones)
         fix_form_btn.pack(side="left", padx=8)
 
+        quick_share_btn = tk.Button(btn_frame, text="🔒 QUICK LOCK & SHARE EXISTING SHEETS", bg="#10B981", fg="#FFFFFF", font=("Segoe UI", 9, "bold"), padx=10, pady=4, cursor="hand2", command=self.start_quick_share_thread)
+        quick_share_btn.pack(side="left", padx=8)
+
         self.dryrun_var = tk.BooleanVar(value=False)
         self.dryrun_cb = ttk.Checkbutton(btn_frame, text="Dry Run (Simulate Only)", variable=self.dryrun_var)
         self.dryrun_cb.pack(side="left", padx=8)
@@ -2589,6 +2681,20 @@ class CashInHandApp(tk.Tk):
         self.log_text.pack(fill="both", expand=True, padx=20, pady=5)
         
         self.gui_log("Welcome to Cash In Hand Orchestration System. Select options and click Run.\n")
+
+    def toggle_all_zones(self):
+        if self.all_zones_var.get():
+            self.zone_listbox.select_set(0, tk.END)
+        else:
+            self.zone_listbox.selection_clear(0, tk.END)
+
+    def on_zone_select(self, event=None):
+        total = self.zone_listbox.size()
+        selected = len(self.zone_listbox.curselection())
+        if selected == total and total > 0:
+            self.all_zones_var.set(True)
+        else:
+            self.all_zones_var.set(False)
 
     def open_cloud_backup(self, sheet_type):
         self.gui_log(f"Opening {sheet_type.upper()} Master Backup Copy from Google Drive...\n")
@@ -2722,6 +2828,93 @@ class CashInHandApp(tk.Tk):
         t = threading.Thread(target=run_fix)
         t.daemon = True
         t.start()
+
+    def start_quick_share_thread(self):
+        selected_indices = self.zone_listbox.curselection()
+        if not selected_indices:
+            messagebox.showwarning("No Zone Selected", "Please select at least one zone from Configuration Settings.")
+            return
+        selected_zones = [self.zone_listbox.get(i) for i in selected_indices]
+        self.gui_log(f"Starting Quick Share for Existing Sheets in zones: {selected_zones}...\n")
+        threading.Thread(target=self.run_quick_share, args=(selected_zones,), daemon=True).start()
+
+    def run_quick_share(self, selected_zones):
+        try:
+            creds = get_oauth_credentials()
+            gc = gspread.authorize(creds)
+            drive_service = build('drive', 'v3', credentials=creds)
+            
+            valid_fms = fetch_master_data(gc)
+            email_mappings, sh_by_zone = get_email_mappings(gc)
+            
+            shared_count = 0
+            for fm_name, fm_data in valid_fms.items():
+                zone = fm_data['zone']
+                if zone not in selected_zones:
+                    continue
+                    
+                fm_clean = clean_person_name(fm_name)
+                mapping = email_mappings.get(fm_clean, {'email': '', 'boss_email': '', 'boss_name': '', 'sh_email': ''})
+                fm_email = mapping['email']
+                boss_email = mapping['boss_email']
+                sh_email = mapping.get('sh_email', '') or sh_by_zone.get(zone, '')
+                
+                sheet_name = f"CASH IN HAND - {fm_name}"
+                q = f"name = '{sheet_name}' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false"
+                res = drive_service.files().list(q=q, spaces='drive', fields='files(id)').execute()
+                files = res.get('files', [])
+                
+                if files:
+                    sheet_id = files[0]['id']
+                    self.gui_log(f"Sharing & locking existing sheet for {fm_name} (ID: {sheet_id})...\n")
+                    if fm_email:
+                        share_file(drive_service, sheet_id, fm_email, role='writer')
+                    if boss_email:
+                        share_file(drive_service, sheet_id, boss_email, role='writer')
+                    if sh_email and sh_email != fm_email:
+                        share_file(drive_service, sheet_id, sh_email, role='reader')
+                        
+                    # Apply cell locking
+                    try:
+                        ss_api = gc.open_by_key(sheet_id)
+                        ws_api = ss_api.get_worksheet(0)
+                        row_11 = [str(x).strip().upper() for x in ws_api.row_values(11)]
+                        try:
+                            t_col_idx = row_11.index("TOTAL CASH IN HAND") + 1
+                        except Exception:
+                            t_col_idx = 11
+                        
+                        editors_list = [e for e in [boss_email, sh_email] if e]
+                        sheets_service = build('sheets', 'v4', credentials=creds)
+                        reqs = [{
+                            "addProtectedRange": {
+                                "protectedRange": {
+                                    "range": {"sheetId": ws_api.id},
+                                    "description": f"Locked headers, dates and formulas for {fm_name}",
+                                    "warningOnly": False,
+                                    "unprotectedRanges": [{
+                                        "sheetId": ws_api.id,
+                                        "startRowIndex": 17,
+                                        "endRowIndex": 48,
+                                        "startColumnIndex": 2,
+                                        "endColumnIndex": t_col_idx - 1
+                                    }],
+                                    "editors": {"users": editors_list}
+                                }
+                            }
+                        }]
+                        sheets_service.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={"requests": reqs}).execute()
+                    except Exception as l_ex:
+                        self.gui_log(f"  Note during locking for {fm_name}: {l_ex}\n")
+                        
+                    shared_count += 1
+                else:
+                    self.gui_log(f"  Warning: Sheet not found in Drive for {fm_name}\n")
+                    
+            self.gui_log(f"\n✔ Quick Share & Lock completed! Successfully updated {shared_count} existing FM sheets without regenerating files.\n")
+            messagebox.showinfo("Quick Share Complete", f"Successfully updated sharing permissions for {shared_count} existing FM sheets!")
+        except Exception as e:
+            self.gui_log(f"Error during Quick Share: {e}\n")
 
     def open_delete_wizard(self):
         selected_indices = self.zone_listbox.curselection()
