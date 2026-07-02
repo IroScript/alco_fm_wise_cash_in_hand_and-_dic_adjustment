@@ -230,12 +230,14 @@ def fetch_master_data(gc):
             continue
 
         fm_am_zone = str(fm_am_zone).strip()
-        fm_am_zone_clean = clean_person_name(fm_am_zone, zone)
+        zone_str = str(zone).strip() if zone else ""
+        fm_am_zone_clean = clean_person_name(fm_am_zone, zone_str)
         
-        if fm_am_zone_clean not in fm_groups:
-            fm_groups[fm_am_zone_clean] = {
+        key = (fm_am_zone_clean, zone_str)
+        if key not in fm_groups:
+            fm_groups[key] = {
                 'depot': depot,
-                'zone': str(zone).strip() if zone else "",
+                'zone': zone_str,
                 'markets': []
             }
         
@@ -243,7 +245,7 @@ def fetch_master_data(gc):
         mpo_clean = 'VACANT' if is_vacant else clean_person_name(mpo_name)
         da_clean = clean_person_name(da_names[0]) if da_names else None
         
-        fm_groups[fm_am_zone_clean]['markets'].append({
+        fm_groups[key]['markets'].append({
             'market_name': market,
             'mpo_name': mpo_clean,
             'desig': desig,
@@ -253,11 +255,15 @@ def fetch_master_data(gc):
             'da_name': da_clean
         })
 
+    valid_groups = {k: v for k, v in fm_groups.items() if any(not m['is_vacant'] for m in v['markets'])}
+    name_zone_counts = {}
+    for (name, z) in valid_groups.keys():
+        name_zone_counts[name] = name_zone_counts.get(name, 0) + 1
+
     valid_fms = {}
-    for fm_name, fm_data in fm_groups.items():
-        non_vacant_mpos = [m for m in fm_data['markets'] if not m['is_vacant']]
-        if non_vacant_mpos:
-            valid_fms[fm_name] = fm_data
+    for (name, z), fm_data in valid_groups.items():
+        key_str = f"{name} ({z})" if name_zone_counts[name] > 1 else name
+        valid_fms[key_str] = fm_data
 
     log_message(f"Successfully loaded {len(valid_fms)} valid FMs from MPO/FM sheet.")
     return valid_fms
@@ -289,7 +295,7 @@ def fetch_company_master_data(gc):
     fm_col = get_col_idx(['FM/AM, ZONE', 'FM/AM', 'FM NAME', 'AM NAME'], 7)
     vacant_col = get_col_idx(['VACANT', 'VACANT STATUS', "VACANT (JUN'26)?", "VACANT (JAN'26)?"], 8)
 
-    company_fms = {}
+    comp_fms_temp = {}
     company_markets = set()
     
     for r in rows[1:]:
@@ -313,10 +319,20 @@ def fetch_company_master_data(gc):
             continue
             
         fm_clean = clean_person_name(fm_raw, zone_str)
-        if fm_clean not in company_fms:
-            company_fms[fm_clean] = {'zone': zone_str, 'markets': set()}
-        company_fms[fm_clean]['markets'].add(market_str.upper())
+        key = (fm_clean, zone_str)
+        if key not in comp_fms_temp:
+            comp_fms_temp[key] = {'zone': zone_str, 'markets': set()}
+        comp_fms_temp[key]['markets'].add(market_str.upper())
         company_markets.add((zone_str, market_str.upper()))
+
+    name_zone_counts = {}
+    for (name, z) in comp_fms_temp.keys():
+        name_zone_counts[name] = name_zone_counts.get(name, 0) + 1
+
+    company_fms = {}
+    for (name, z), data in comp_fms_temp.items():
+        key_str = f"{name} ({z})" if name_zone_counts[name] > 1 else name
+        company_fms[key_str] = data
         
     return company_fms, company_markets
 
