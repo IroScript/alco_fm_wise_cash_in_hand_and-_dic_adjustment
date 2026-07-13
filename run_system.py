@@ -20,7 +20,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 # Directory Settings
-BASE_DIR = r"c:\Users\Irak\Desktop\Cash in Hand and Dic Adjustment"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CLIENT_SECRET_FILE = os.path.join(BASE_DIR, "FieldEdit", "client_secret_866102064521-5g6tq5989nqs97ehgse7n6fl1o9pslt5.apps.googleusercontent.com.json")
 TOKEN_FILE = os.path.join(BASE_DIR, "FieldEdit", "token.json")
 PARENT_FOLDER_ID = "1iOFeqywnIZ_yVclg_Em2U1npPtsokfGk"
@@ -1824,6 +1824,372 @@ def create_local_zonal_excel(zone, zone_fms, registry_map, output_path, month_st
     wb.save(output_path)
     wb.close()
 
+# ══════════════════════════════════════════════════════════════════
+#  TRANSPOSED ZONAL SUMMARY — Dates as Columns, Persons as Rows
+# ══════════════════════════════════════════════════════════════════
+def create_local_transposed_zonal_excel(zone, zone_fms, registry_map, output_path, month_str, num_days):
+    """Generate a transposed zonal summary where:
+       - Person names (FM Self, MPOs, DAs) are ROWS
+       - Dates are COLUMNS
+       - Includes FM TOTAL, SH SELF, ZONE TOTAL rows and DEPOT TOTAL column
+       - Data sourced via IMPORTRANGE+TRANSPOSE from individual FM sheets
+    """
+    FONT_FAMILY = 'Aptos'
+    C_VOID, C_DEEP_NAVY, C_MIDNIGHT, C_DARK_SURF = '060816', '0D1425', '1E293B', '0F172A'
+    C_ZEBRA_A, C_ZEBRA_B = 'FFFFFF', 'F8FAFC'
+    C_TOTAL_DATA, C_TOTAL_HEAD = 'ECFDF5', '065F46'
+    T_NEON, T_WHITE, T_SLATE, T_INK = '00F2FE', 'FFFFFF', 'CBD5E1', '0F172A'
+    T_MINT, T_TOTAL_DARK, T_DATE = 'A7F3D0', '064E3B', '475569'
+    B_NEON, B_SLATE, B_LIGHT, B_TOTAL = '0E7490', '334155', 'E2E8F0', '6EE7B7'
+
+    font_title = Font(name=FONT_FAMILY, size=26, bold=True, color=T_NEON)
+    font_hdr   = Font(name=FONT_FAMILY, size=10, bold=True, color=T_WHITE)
+    font_sub   = Font(name=FONT_FAMILY, size=9, bold=True, color=T_SLATE)
+    font_name  = Font(name=FONT_FAMILY, size=10, bold=True, color=T_WHITE)
+    font_date  = Font(name=FONT_FAMILY, size=10, bold=True, color=T_DATE)
+    font_body  = Font(name=FONT_FAMILY, size=10, bold=False, color=T_INK)
+    font_total_h = Font(name=FONT_FAMILY, size=10, bold=True, color=T_MINT)
+    font_total_d = Font(name=FONT_FAMILY, size=10, bold=True, color=T_TOTAL_DARK)
+    font_role  = Font(name=FONT_FAMILY, size=9, bold=True, color=T_SLATE)
+
+    fill_void     = PatternFill('solid', start_color=C_VOID, end_color=C_VOID)
+    fill_navy     = PatternFill('solid', start_color=C_DEEP_NAVY, end_color=C_DEEP_NAVY)
+    fill_mid      = PatternFill('solid', start_color=C_MIDNIGHT, end_color=C_MIDNIGHT)
+    fill_dark     = PatternFill('solid', start_color=C_DARK_SURF, end_color=C_DARK_SURF)
+    fill_za       = PatternFill('solid', start_color=C_ZEBRA_A, end_color=C_ZEBRA_A)
+    fill_zb       = PatternFill('solid', start_color=C_ZEBRA_B, end_color=C_ZEBRA_B)
+    fill_tot_data = PatternFill('solid', start_color=C_TOTAL_DATA, end_color=C_TOTAL_DATA)
+    fill_tot_head = PatternFill('solid', start_color=C_TOTAL_HEAD, end_color=C_TOTAL_HEAD)
+
+    def side(style='thin', color=B_LIGHT):
+        return Side(style=style, color=color)
+
+    bd_data  = Border(left=side(), right=side(), top=side(), bottom=side())
+    bd_hdr   = Border(left=side('thin', B_SLATE), right=side('thin', B_SLATE), top=side('thin', B_SLATE), bottom=side('thin', B_SLATE))
+    bd_total = Border(left=side('thin', B_TOTAL), right=side('thin', B_TOTAL), top=side('thin', B_TOTAL), bottom=side('thin', B_TOTAL))
+    bd_date  = Border(left=side('medium', B_SLATE), right=side('thin', B_LIGHT), top=side('thin', B_LIGHT), bottom=side('thin', B_LIGHT))
+
+    align_center = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    align_right  = Alignment(horizontal='right', vertical='center')
+
+    dates = [f"{d} {month_str}" for d in range(num_days, 0, -1)]
+    
+    # Metadata columns are B..J (9 columns)
+    # Col 2 (B): ZONE
+    # Col 3 (C): FM NAME
+    # Col 4 (D): MARKET NAME
+    # Col 5 (E): MPO CODE
+    # Col 6 (F): FM CODE
+    # Col 7 (G): NAME
+    # Col 8 (H): ROLE
+    # Col 9 (I): IS VACANT
+    # Col 10 (J): DA NAME
+    # Dates start at Col 11 (K)
+    start_date_col_idx = 11
+    last_date_col_idx = start_date_col_idx + num_days - 1
+    depot_total_col = last_date_col_idx + 1
+
+    first_date_letter = get_column_letter(start_date_col_idx)
+    last_date_letter = get_column_letter(last_date_col_idx)
+
+    # Build FM blocks with person lists
+    fm_blocks = []
+    for f_name, f_data in zone_fms.items():
+        fm_clean = f_name.split(',')[0].strip()
+        markets = f_data['markets']
+
+        persons = []
+        # FM Self
+        persons.append({
+            'name': fm_clean,
+            'role': 'FM SELF',
+            'market': '',
+            'mpo_code': '',
+            'fm_code': '',
+            'is_vacant': 'N',
+            'da_name': ''
+        })
+
+        # MPOs (including vacant ones)
+        num_mpos = len(markets)
+        for m in markets:
+            persons.append({
+                'name': m['mpo_name'] or 'VACANT',
+                'role': 'MPO',
+                'market': m.get('market_name', ''),
+                'mpo_code': m.get('mpo_code', ''),
+                'fm_code': m.get('fm_code', ''),
+                'is_vacant': m.get('is_vacant', 'N'),
+                'da_name': m.get('da_name', '')
+            })
+
+        # DAs (unique, non-vacant)
+        das = []
+        for m in markets:
+            if m['da_name'] and str(m['da_name']).strip().upper() != 'VACANT':
+                da_str = str(m['da_name']).strip().upper()
+                if da_str not in das:
+                    das.append(da_str)
+        num_das = len(das)
+        for da_str in das:
+            persons.append({
+                'name': da_str,
+                'role': 'DA',
+                'market': '',
+                'mpo_code': '',
+                'fm_code': '',
+                'is_vacant': 'N',
+                'da_name': ''
+            })
+
+        num_persons = len(persons)
+        fm_url = registry_map.get(fm_clean, '')
+
+        # FM sheet data columns: C (FM Self) + MPOs + DAs -> total = 1 + num_mpos + num_das
+        fm_data_cols = 1 + num_mpos + num_das
+        fm_last_data_col_letter = get_column_letter(2 + fm_data_cols)
+
+        fm_blocks.append({
+            'name': fm_clean,
+            'persons': persons,
+            'num_persons': num_persons,
+            'url': fm_url,
+            'fm_last_data_col': fm_last_data_col_letter,
+            'num_mpos': num_mpos,
+            'num_das': num_das
+        })
+
+    # Compute row layout
+    current_row = 8
+    # ZONE TOTAL row is row 8
+    zone_total_row = current_row
+    current_row += 1
+    # SH SELF row is row 9
+    sh_self_row = current_row
+    current_row += 1
+
+    for block in fm_blocks:
+        block['total_row'] = current_row
+        block['start_row'] = current_row + 1
+        block['end_row'] = current_row + block['num_persons']
+        current_row = block['end_row'] + 1
+
+    # Create workbook
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = month_str
+    ws.views.sheetView[0].showGridLines = True
+    ws.sheet_view.zoomScale = 90
+    ws.sheet_properties.tabColor = '00F2FE' if zone in ('CTG.A', 'CTG.B') else 'A855F7'
+
+    # Row heights
+    ws.row_dimensions[1].height = 10
+    ws.row_dimensions[2].height = 28
+    ws.row_dimensions[3].height = 28
+    ws.row_dimensions[4].height = 8
+    ws.row_dimensions[5].height = 22
+    ws.row_dimensions[6].height = 20
+    ws.row_dimensions[7].height = 8
+    for r in range(8, current_row):
+        ws.row_dimensions[r].height = 20
+    ws.row_dimensions[zone_total_row].height = 24
+    ws.row_dimensions[sh_self_row].height = 22
+    for block in fm_blocks:
+        ws.row_dimensions[block['total_row']].height = 22
+
+    # Column widths
+    ws.column_dimensions['A'].width = 3
+    for c in ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']:
+        ws.column_dimensions[c].width = 15
+    ws.column_dimensions['G'].width = 22  # Name column
+    ws.column_dimensions['D'].width = 18  # Market column
+    for c in range(start_date_col_idx, depot_total_col + 1):
+        ws.column_dimensions[get_column_letter(c)].width = 13
+    ws.column_dimensions[get_column_letter(depot_total_col)].width = 16
+
+    ws.freeze_panes = 'K8'
+
+    # Title
+    ws.merge_cells(start_row=2, start_column=7, end_row=3, end_column=depot_total_col)
+    title_cell = ws.cell(row=2, column=7, value=f"ZONE SUMMARY — {zone}")
+    title_cell.font = font_title
+    title_cell.fill = fill_void
+    title_cell.alignment = align_center
+    for r in range(2, 4):
+        for c in range(7, depot_total_col + 1):
+            cell = ws.cell(row=r, column=c)
+            cell.fill = fill_void
+            left_b   = side('medium', B_NEON) if c == 7 else None
+            right_b  = side('medium', B_NEON) if c == depot_total_col else None
+            top_b    = side('medium', B_NEON) if r == 2 else None
+            bottom_b = side('medium', B_NEON) if r == 3 else None
+            cell.border = Border(left=left_b, right=right_b, top=top_b, bottom=bottom_b)
+
+    # Group Headers
+    ws.merge_cells(start_row=5, start_column=2, end_row=5, end_column=10)
+    c_pi = ws.cell(row=5, column=2, value="PERSON INFO")
+    c_pi.font = font_hdr; c_pi.fill = fill_mid; c_pi.alignment = align_center
+    for c in range(2, 11):
+        ws.cell(row=5, column=c).fill = fill_mid
+        ws.cell(row=5, column=c).border = bd_hdr
+
+    ws.merge_cells(start_row=5, start_column=start_date_col_idx, end_row=5, end_column=last_date_col_idx)
+    c_dch = ws.cell(row=5, column=start_date_col_idx, value="DAILY CASH IN HAND")
+    c_dch.font = font_hdr; c_dch.fill = fill_mid; c_dch.alignment = align_center
+    for c in range(start_date_col_idx, last_date_col_idx + 1):
+        ws.cell(row=5, column=c).fill = fill_mid
+        ws.cell(row=5, column=c).border = bd_hdr
+
+    c_dt = ws.cell(row=5, column=depot_total_col, value="DEPOT\nTOTAL")
+    c_dt.font = font_total_h; c_dt.fill = fill_tot_head; c_dt.alignment = align_center
+    c_dt.border = bd_total
+    ws.merge_cells(start_row=5, start_column=depot_total_col, end_row=6, end_column=depot_total_col)
+
+    # Sub-headers
+    sub_headers = ["ZONE", "FM NAME", "MARKET", "MPO CODE", "FM CODE", "NAME", "ROLE", "VACANT", "DA NAME"]
+    for idx, sh in enumerate(sub_headers):
+        c_sub = ws.cell(row=6, column=2 + idx, value=sh)
+        c_sub.font = font_hdr; c_sub.fill = fill_mid; c_sub.alignment = align_center; c_sub.border = bd_hdr
+
+    for d_idx, d_val in enumerate(dates):
+        col = start_date_col_idx + d_idx
+        c_d = ws.cell(row=6, column=col, value=d_val)
+        c_d.font = font_date; c_d.fill = fill_za; c_d.alignment = align_center; c_d.border = bd_date
+
+    # Zone Summary Row (Row 8)
+    ws.cell(row=zone_total_row, column=2, value=zone).font = font_body
+    ws.cell(row=zone_total_row, column=7, value="ZONE SUMMARY").font = Font(name=FONT_FAMILY, size=11, bold=True, color=T_WHITE)
+    ws.cell(row=zone_total_row, column=8, value="TOTAL").font = Font(name=FONT_FAMILY, size=11, bold=True, color=T_WHITE)
+    for c in range(2, 11):
+        cell = ws.cell(row=zone_total_row, column=c)
+        cell.fill = fill_tot_head
+        cell.border = bd_total
+
+    # SH Self Row (Row 9)
+    ws.cell(row=sh_self_row, column=2, value=zone).font = font_body
+    ws.cell(row=sh_self_row, column=7, value="SH SELF").font = font_total_d
+    ws.cell(row=sh_self_row, column=8, value="SH").font = font_total_d
+    for c in range(2, 11):
+        cell = ws.cell(row=sh_self_row, column=c)
+        cell.fill = fill_tot_data
+        cell.border = bd_total
+
+    for d_idx in range(num_days):
+        col = start_date_col_idx + d_idx
+        c_sh = ws.cell(row=sh_self_row, column=col, value=0)
+        c_sh.font = font_body; c_sh.fill = fill_tot_data; c_sh.alignment = align_right; c_sh.border = bd_total
+        c_sh.number_format = '#,##0'
+
+    c_sh_dt = ws.cell(row=sh_self_row, column=depot_total_col, value=f"=SUM({first_date_letter}{sh_self_row}:{last_date_letter}{sh_self_row})")
+    c_sh_dt.font = font_total_d; c_sh_dt.fill = fill_tot_data; c_sh_dt.alignment = align_right; c_sh_dt.border = bd_total
+    c_sh_dt.number_format = '#,##0'
+
+    fm_total_rows = []
+    all_person_rows = []
+
+    # Write FM blocks
+    for block in fm_blocks:
+        t_row = block['total_row']
+        s_row = block['start_row']
+        e_row = block['end_row']
+        fm_total_rows.append(t_row)
+
+        # FM Total row metadata
+        ws.cell(row=t_row, column=2, value=zone).font = font_total_d
+        ws.cell(row=t_row, column=3, value=block['name']).font = font_total_d
+        ws.cell(row=t_row, column=7, value=f"{block['name']} TOTAL").font = font_total_d
+        ws.cell(row=t_row, column=8, value="TOTAL").font = font_total_d
+        for c in range(2, 11):
+            cell = ws.cell(row=t_row, column=c)
+            cell.fill = fill_tot_data
+            cell.border = bd_total
+
+        # Formulas for FM Total row
+        for d_idx in range(num_days):
+            col = start_date_col_idx + d_idx
+            col_letter = get_column_letter(col)
+            sum_formula = f"=SUM({col_letter}{s_row}:{col_letter}{e_row})"
+            c_tot = ws.cell(row=t_row, column=col, value=sum_formula)
+            c_tot.font = font_total_d; c_tot.fill = fill_tot_data; c_tot.alignment = align_right; c_tot.border = bd_total
+            c_tot.number_format = '#,##0'
+
+        depot_formula = f"=SUM({first_date_letter}{t_row}:{last_date_letter}{t_row})"
+        c_dp = ws.cell(row=t_row, column=depot_total_col, value=depot_formula)
+        c_dp.font = font_total_d; c_dp.fill = fill_tot_data; c_dp.alignment = align_right; c_dp.border = bd_total
+        c_dp.number_format = '#,##0'
+
+        # Write Person rows
+        for p_idx, person in enumerate(block['persons']):
+            row = s_row + p_idx
+            all_person_rows.append(row)
+
+            ws.cell(row=row, column=2, value=zone)
+            ws.cell(row=row, column=3, value=block['name'])
+            ws.cell(row=row, column=4, value=person['market'])
+            ws.cell(row=row, column=5, value=person['mpo_code'])
+            ws.cell(row=row, column=6, value=person['fm_code'])
+            ws.cell(row=row, column=7, value=person['name'])
+            ws.cell(row=row, column=8, value=person['role'])
+            ws.cell(row=row, column=9, value=person['is_vacant'])
+            ws.cell(row=row, column=10, value=person['da_name'])
+
+            # Formatting & Borders
+            row_fill = fill_zb if p_idx % 2 == 1 else fill_za
+            for c in range(2, 11):
+                cell = ws.cell(row=row, column=c)
+                cell.font = font_body
+                if c == 7:
+                    cell.font = font_name
+                cell.fill = row_fill
+                cell.border = bd_data
+                if c in [2, 3, 5, 6, 8, 9]:
+                    cell.alignment = align_center
+                else:
+                    cell.alignment = align_right
+
+            # Hide vacant rows
+            if person['is_vacant'] == 'Y':
+                ws.row_dimensions[row].hidden = True
+
+            # Individual row depot totals
+            row_depot_formula = f"=SUM({first_date_letter}{row}:{last_date_letter}{row})"
+            c_rdp = ws.cell(row=row, column=depot_total_col, value=row_depot_formula)
+            c_rdp.font = font_body; c_rdp.fill = fill_tot_data; c_rdp.alignment = align_right; c_rdp.border = bd_total
+            c_rdp.number_format = '#,##0'
+
+        # IMPORTRANGE+TRANSPOSE formula for person data cells (spills across dates and down persons)
+        if block['url']:
+            importrange_formula = f'=TRANSPOSE(IMPORTRANGE("{block["url"]}", "{month_str}!C18:{block["fm_last_data_col"]}{18+num_days-1}"))'
+        else:
+            importrange_formula = '=""'
+        ws.cell(row=s_row, column=start_date_col_idx, value=importrange_formula)
+
+    # ZONE TOTAL Row formulas (summing SH self + FM totals)
+    for d_idx in range(num_days):
+        col = start_date_col_idx + d_idx
+        col_letter = get_column_letter(col)
+        parts = [f"{col_letter}{sh_self_row}"] + [f"{col_letter}{r}" for r in fm_total_rows]
+        sum_formula = "=SUM(" + ",".join(parts) + ")"
+        c_zt = ws.cell(row=zone_total_row, column=col, value=sum_formula)
+        c_zt.font = Font(name=FONT_FAMILY, size=10, bold=True, color=T_WHITE)
+        c_zt.fill = fill_tot_head; c_zt.alignment = align_right; c_zt.border = bd_total
+        c_zt.number_format = '#,##0'
+
+    # ZONE TOTAL Depot Total (Grand Total)
+    zt_formula = f"=SUM({first_date_letter}{zone_total_row}:{last_date_letter}{zone_total_row})"
+    c_zt_gt = ws.cell(row=zone_total_row, column=depot_total_col, value=zt_formula)
+    c_zt_gt.font = Font(name=FONT_FAMILY, size=11, bold=True, color=T_WHITE)
+    c_zt_gt.fill = fill_tot_head; c_zt_gt.alignment = align_right; c_zt_gt.border = bd_total
+    c_zt_gt.number_format = '#,##0'
+
+    # Hide metadata columns B..F, I, J (Col 2..6, 9, 10)
+    for col_to_hide in ['B', 'C', 'D', 'E', 'F', 'I', 'J']:
+        ws.column_dimensions[col_to_hide].hidden = True
+
+    wb.save(output_path)
+    wb.close()
+    return output_path, fm_blocks, sh_self_row, zone_total_row, depot_total_col
+
 # Zonal Summary Creation & Drive Uplink Orchestrator
 def run_zonal_summaries(selected_zones, month_str, num_days, dry_run=False):
     log_message("\nStarting Zonal Summary Generation process...")
@@ -1984,6 +2350,799 @@ def run_zonal_summaries(selected_zones, month_str, num_days, dry_run=False):
         time.sleep(1)
 
     log_message("Zonal Summary Generation completed!")
+
+# ══════════════════════════════════════════════════════════════
+#  TRANSPOSED ZONAL SUMMARY — Orchestrator (Dates as Columns)
+# ══════════════════════════════════════════════════════════════
+def run_transposed_zonal_summaries(selected_zones, month_str, num_days, dry_run=False):
+    log_message("\nStarting TRANSPOSED Zonal Summary Generation process...")
+    log_message("Skipping transposed zonal summaries generation as per user requirements (no longer needed, Depot Summary pulls directly).")
+
+# ══════════════════════════════════════════════════════════════════
+#  FM FILL STATUS MONITORING SHEET
+# ══════════════════════════════════════════════════════════════════
+def create_fm_fill_status_sheet(gc, drive_service, month_str, num_days, selected_zones, dry_run=False):
+    """Create a monitoring sheet showing which FMs have filled their data.
+       Columns: FM NAME | ZONE | FILL % | STATUS | FILLED CELLS | TOTAL CELLS
+       Uses COUNTIF+IMPORTRANGE to calculate fill percentage from each FM's sheet.
+    """
+    log_message(f"\n--- Generating FM Fill Status Sheet for {month_str} ---")
+    creds = get_oauth_credentials()
+    gc = gspread.authorize(creds)
+    drive_service = build('drive', 'v3', credentials=creds)
+    sheets_service = build('sheets', 'v4', credentials=creds)
+
+    # Year 50K Design constants (minimal set for this sheet)
+    FONT_FAMILY = 'Aptos'
+    C_VOID = '060816'
+    C_MIDNIGHT = '1E293B'
+    C_ZEBRA_A = 'FFFFFF'
+    C_ZEBRA_B = 'F8FAFC'
+    C_TOTAL_DATA = 'ECFDF5'
+    T_NEON = '00F2FE'
+    T_WHITE = 'FFFFFF'
+    T_SLATE = 'CBD5E1'
+    T_INK = '0F172A'
+    T_DATE = '475569'
+    B_SLATE = '334155'
+    B_LIGHT = 'E2E8F0'
+
+    font_title = Font(name=FONT_FAMILY, size=26, bold=True, color=T_NEON)
+    font_hdr = Font(name=FONT_FAMILY, size=10, bold=True, color=T_WHITE)
+    font_body = Font(name=FONT_FAMILY, size=10, bold=False, color=T_INK)
+    font_date = Font(name=FONT_FAMILY, size=10, bold=True, color=T_DATE)
+
+    fill_void = PatternFill('solid', start_color=C_VOID, end_color=C_VOID)
+    fill_mid = PatternFill('solid', start_color=C_MIDNIGHT, end_color=C_MIDNIGHT)
+    fill_za = PatternFill('solid', start_color=C_ZEBRA_A, end_color=C_ZEBRA_A)
+    fill_zb = PatternFill('solid', start_color=C_ZEBRA_B, end_color=C_ZEBRA_B)
+    fill_tot_data = PatternFill('solid', start_color=C_TOTAL_DATA, end_color=C_TOTAL_DATA)
+
+    def side(style='thin', color=B_LIGHT):
+        return Side(style=style, color=color)
+
+    bd_data = Border(left=side(), right=side(), top=side(), bottom=side())
+    bd_hdr = Border(left=side('thin', B_SLATE), right=side('thin', B_SLATE),
+                    top=side('thin', B_SLATE), bottom=side('thin', B_SLATE))
+
+    align_center = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    align_right = Alignment(horizontal='right', vertical='center')
+
+    valid_fms = fetch_master_data(gc)
+
+    # Filter FMs by selected zones
+    filtered_fms = {k: v for k, v in valid_fms.items() if v['zone'] in selected_zones}
+
+    # Build registry map for URLs
+    registry_name = "Master_Registry_Cash_In_Hand"
+    query = f"name = '{registry_name}' and mimeType = 'application/vnd.google-apps.spreadsheet' and '{PARENT_FOLDER_ID}' in parents and trashed = false"
+    res = drive_service.files().list(q=query, spaces='drive', fields='files(id)').execute()
+    files = res.get('files', [])
+    if not files:
+        log_message("Warning: Master Registry not found for Fill Status sheet!")
+        return
+
+    reg_sheet = gc.open_by_key(files[0]['id'])
+    reg_ws = reg_sheet.get_worksheet(0)
+    registry_records = reg_ws.get_all_records()
+
+    registry_map = {}
+    for r in registry_records:
+        fm = r.get('FM Name')
+        url = r.get('URL')
+        if fm and url:
+            registry_map[clean_person_name(fm)] = url
+
+    # Create local Excel file
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "FM_FILL_STATUS"
+    ws.views.sheetView[0].showGridLines = True
+    ws.sheet_view.zoomScale = 90
+    ws.sheet_properties.tabColor = '00F2FE'
+
+    ws.row_dimensions[1].height = 10
+    ws.row_dimensions[2].height = 28
+    ws.row_dimensions[3].height = 28
+    ws.row_dimensions[4].height = 8
+    ws.row_dimensions[5].height = 22
+    ws.row_dimensions[6].height = 20
+
+    ws.column_dimensions['A'].width = 3
+    ws.column_dimensions['B'].width = 25
+    ws.column_dimensions['C'].width = 12
+    ws.column_dimensions['D'].width = 12
+    ws.column_dimensions['E'].width = 16
+    ws.column_dimensions['F'].width = 16
+    ws.column_dimensions['G'].width = 16
+
+    ws.freeze_panes = 'B6'
+
+    # Title
+    ws.merge_cells(start_row=2, start_column=2, end_row=3, end_column=7)
+    title_cell = ws.cell(row=2, column=2, value=f"FM FILL STATUS — {month_str}")
+    title_cell.font = font_title
+    title_cell.fill = fill_void
+    title_cell.alignment = align_center
+    for r in range(2, 4):
+        for c in range(2, 8):
+            cell = ws.cell(row=r, column=c)
+            cell.fill = fill_void
+            left = side('medium', '0E7490') if c == 2 else None
+            right = side('medium', '0E7490') if c == 7 else None
+            top = side('medium', '0E7490') if r == 2 else None
+            bottom = side('medium', '0E7490') if r == 3 else None
+            cell.border = Border(left=left, right=right, top=top, bottom=bottom)
+
+    # Headers
+    headers = ["FM NAME", "ZONE", "FILL %", "STATUS", "FILLED CELLS", "TOTAL CELLS"]
+    for idx, h in enumerate(headers):
+        col = 2 + idx
+        c = ws.cell(row=5, column=col, value=h)
+        c.font = font_hdr
+        c.fill = fill_mid
+        c.alignment = align_center
+        c.border = bd_hdr
+
+    # Data rows - one per FM
+    row_num = 6
+    for fm_name, fm_data in sorted(filtered_fms.items()):
+        fm_clean = fm_name.split(',')[0].strip()
+        zone = fm_data['zone']
+        fm_url = registry_map.get(fm_clean, '')
+
+        c_name = ws.cell(row=row_num, column=2, value=fm_clean)
+        c_name.font = font_body; c_name.alignment = align_right; c_name.border = bd_data
+        c_zone = ws.cell(row=row_num, column=3, value=zone)
+        c_zone.font = font_body; c_zone.alignment = align_center; c_zone.border = bd_data
+
+        if fm_url:
+            # FM sheet data range: C18 to last_data_col, rows 18 to 18+num_days-1
+            # We need to compute last_data_col - use a reasonable default
+            # Since we don't know exact column count per FM, use a wide range
+            # Google Sheets will handle out-of-bounds gracefully
+            last_col_guess = 'Z'  # generous upper bound
+            data_range = f"{month_str}!C18:{last_col_guess}{18 + num_days - 1}"
+
+            # FILL % = ROUND(COUNTIF(IMPORTRANGE, ">0") / COUNTA(IMPORTRANGE) * 100, 1)
+            fill_formula = (f'=ROUND(COUNTIF(IMPORTRANGE("{fm_url}", "{data_range}"), ">0") '
+                           f'/ COUNTA(IMPORTRANGE("{fm_url}", "{data_range}")) * 100, 1)')
+            # STATUS = IF(fill%>=100,"✅ FILLED", IF(fill%>0,"⚠️ PARTIAL","❌ EMPTY"))
+            status_formula = (f'=IF(D{row_num}>=100,"✅ FILLED",IF(D{row_num}>0,"⚠️ PARTIAL","❌ EMPTY"))')
+            # FILLED CELLS
+            filled_formula = f'=COUNTIF(IMPORTRANGE("{fm_url}", "{data_range}"), ">0")'
+            # TOTAL CELLS
+            total_formula = f'=COUNTA(IMPORTRANGE("{fm_url}", "{data_range}"))'
+
+            c_fill = ws.cell(row=row_num, column=4, value=fill_formula)
+            c_fill.font = font_body; c_fill.alignment = align_center; c_fill.border = bd_data
+            c_fill.number_format = '0.0'
+
+            c_status = ws.cell(row=row_num, column=5, value=status_formula)
+            c_status.font = font_body; c_status.alignment = align_center; c_status.border = bd_data
+
+            c_filled = ws.cell(row=row_num, column=6, value=filled_formula)
+            c_filled.font = font_body; c_filled.alignment = align_center; c_filled.border = bd_data
+
+            c_total = ws.cell(row=row_num, column=7, value=total_formula)
+            c_total.font = font_body; c_total.alignment = align_center; c_total.border = bd_data
+        else:
+            c_fill = ws.cell(row=row_num, column=4, value="N/A")
+            c_fill.font = font_body; c_fill.alignment = align_center; c_fill.border = bd_data
+            c_status = ws.cell(row=row_num, column=5, value="NO URL")
+            c_status.font = font_body; c_status.alignment = align_center; c_status.border = bd_data
+            c_filled = ws.cell(row=row_num, column=6, value="N/A")
+            c_filled.font = font_body; c_filled.alignment = align_center; c_filled.border = bd_data
+            c_total = ws.cell(row=row_num, column=7, value="N/A")
+            c_total.font = font_body; c_total.alignment = align_center; c_total.border = bd_data
+
+        # Zebra striping
+        row_fill = fill_zb if (row_num - 6) % 2 == 1 else fill_za
+        for c in range(2, 8):
+            ws.cell(row=row_num, column=c).fill = row_fill
+
+        row_num += 1
+
+    # Output path
+    os.makedirs(BASE_DIR, exist_ok=True)
+    out_path = os.path.join(BASE_DIR, f"FM_Fill_Status_{month_str}.xlsx")
+    wb.save(out_path)
+    wb.close()
+    log_message(f"Generated local FM Fill Status: {out_path}")
+
+    if dry_run:
+        try:
+            os.remove(out_path)
+        except Exception:
+            pass
+        return
+
+    # Upload to Google Drive
+    file_metadata = {
+        'name': f'FM Fill Status — {month_str}',
+        'mimeType': 'application/vnd.google-apps.spreadsheet',
+        'parents': [PARENT_FOLDER_ID]
+    }
+    media = MediaFileUpload(out_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resumable=True)
+    uploaded_file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+    fill_status_id = uploaded_file.get('id')
+    log_message(f"Uploaded FM Fill Status Google Sheet. ID: {fill_status_id}")
+
+    # Clean local file
+    try:
+        os.remove(out_path)
+    except Exception:
+        pass
+
+    log_message("FM Fill Status Sheet generation completed!")
+
+# ══════════════════════════════════════════════════════════════════
+#  DEPOT & NATIONAL SUMMARY SHEETS
+# ══════════════════════════════════════════════════════════════════
+def update_depot_sheets(gc, drive_service, sheets_service, month_str, num_days, selected_zones, dry_run=False):
+    """Update depot-level summary sheets by aggregating zone totals.
+       Each depot sheet contains: Zone names as rows, dates as columns, Depot Total column.
+       Data pulled via IMPORTRANGE from transposed zonal summaries.
+    """
+    log_message(f"\n--- Updating Depot Summary Sheets for {month_str} ---")
+
+    valid_fms = fetch_master_data(gc)
+    email_mappings, sh_by_zone = get_email_mappings(gc)
+
+    # Build zone to depot mapping from master data
+    zone_to_depot = {}
+    depot_zones = {}
+    for fm_name, fm_data in valid_fms.items():
+        zone = fm_data['zone']
+        depot = fm_data.get('depot', zone)  # fallback to zone if no depot
+        zone_to_depot[zone] = depot
+        if depot not in depot_zones:
+            depot_zones[depot] = []
+        if zone not in depot_zones[depot]:
+            depot_zones[depot].append(zone)
+
+    # Get depot sheet URLs from existing config
+    depot_urls = {}
+    try:
+        with open(os.path.join(BASE_DIR, 'uploaded_sheets_links.json'), 'r') as f:
+            depot_config = json.load(f)
+            for key, url in depot_config.items():
+                if 'DEPOT' in key:
+                    depot_name = key.replace('_DEPOT_CASH_IN_HAND_Summary', '').replace('_', ' ')
+                    depot_urls[depot_name] = url
+    except Exception:
+        pass
+
+    for depot_name, zones_in_depot in depot_zones.items():
+        # Check if at least one zone of this depot is in selected_zones
+        if not any(z in selected_zones for z in zones_in_depot):
+            continue
+
+        log_message(f"Processing Depot Summary: {depot_name}")
+
+        if dry_run:
+            log_message(f"  [DRY-RUN] Would update depot sheet for {depot_name}")
+            continue
+
+        # Find depot sheet URL
+        depot_url = depot_urls.get(depot_name)
+        if not depot_url:
+            for key, url in depot_urls.items():
+                if depot_name.upper() in key.upper() or key.upper() in depot_name.upper():
+                    depot_url = url
+                    break
+
+        if not depot_url:
+            log_message(f"  Warning: No depot sheet URL found for {depot_name}")
+            continue
+
+        try:
+            depot_ss = gc.open_by_url(depot_url)
+            depot_ws = depot_ss.get_worksheet(0)
+
+            # Clear existing values
+            depot_ws.clear()
+
+            # Unmerge all cells in the sheet first to avoid freeze pane error
+            try:
+                sheets_service.spreadsheets().batchUpdate(
+                    spreadsheetId=depot_ss.id,
+                    body={"requests": [{"unmergeCells": {"range": {"sheetId": depot_ws.id}}}]}
+                ).execute()
+            except Exception as unmerge_err:
+                log_message(f"  Warning during unmerge: {unmerge_err}")
+
+            # Build header row
+            headers = ["ZONE", "FM NAME", "MARKET", "MPO CODE", "FM CODE", "NAME", "ROLE", "VACANT", "DA NAME"] + \
+                      [f"{d} {month_str}" for d in range(num_days, 0, -1)] + ["DEPOT\nTOTAL"]
+            depot_ws.update(range_name='A1', values=[headers], value_input_option='USER_ENTERED')
+
+            # We will populate rows starting at Row 8
+            row_num = 8
+            zone_total_rows = []
+            
+            # Arrays to store bulk updates
+            meta_updates = []
+            formula_updates = []
+            total_updates = []
+
+            for zone in zones_in_depot:
+                zonal_id, zonal_url = None, None
+                name = f"{zone} CASH IN HAND"
+                query = f"name = '{name}' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false"
+                res = drive_service.files().list(q=query, spaces='drive', fields='files(id, webViewLink)').execute()
+                files = res.get('files', [])
+                if files:
+                    zonal_id = files[0]['id']
+                    zonal_url = files[0]['webViewLink']
+
+                if not zonal_id:
+                    log_message(f"  Warning: Zonal summary sheet not found for zone {zone}")
+                    continue
+
+                zone_fms = {k: v for k, v in valid_fms.items() if v['zone'] == zone}
+                def fm_sort_key(item):
+                    f_name = item[0]
+                    fm_clean = f_name.split(',')[0].strip().upper()
+                    if zone == 'CTG.B':
+                        order = ["JAINAL ABEDIN AKHAND", "FIROZ AHMED", "NARAYAN DAS", "SHAHJAHAN"]
+                    else:
+                        order = ["MONIR UDDIN", "RAFIQUL MOULA", "VACANT, KHAGRACHARI"]
+                    for idx, name in enumerate(order):
+                        if name in fm_clean:
+                            return idx
+                    return 99
+
+                sorted_zone_fms = dict(sorted(zone_fms.items(), key=fm_sort_key))
+
+                zonal_layout_rows = []
+                # ZONE SUMMARY is column 3 (C)
+                zonal_layout_rows.append({
+                    'zonal_col': 3,
+                    'meta': [zone, '', '', '', '', 'ZONE SUMMARY', 'TOTAL', 'N', ''],
+                    'is_zone_total': True,
+                    'is_vacant': 'N'
+                })
+                # SH SELF is column 4 (D)
+                zonal_layout_rows.append({
+                    'zonal_col': 4,
+                    'meta': [zone, '', '', '', '', 'SH SELF', 'SH', 'N', ''],
+                    'is_zone_total': False,
+                    'is_vacant': 'N'
+                })
+
+                num_fms = len(sorted_zone_fms)
+                curr_col = 5 + num_fms
+
+                for f_idx, (f_name, f_data) in enumerate(sorted_zone_fms.items()):
+                    fm_clean = f_name.split(',')[0].strip()
+                    markets = f_data['markets']
+                    
+                    # FM TOTAL is column 5 + f_idx
+                    zonal_layout_rows.append({
+                        'zonal_col': 5 + f_idx,
+                        'meta': [zone, fm_clean, '', '', '', f"{fm_clean} TOTAL", 'TOTAL', 'N', ''],
+                        'is_zone_total': False,
+                        'is_vacant': 'N'
+                    })
+
+                    # FM SELF is column curr_col
+                    zonal_layout_rows.append({
+                        'zonal_col': curr_col,
+                        'meta': [zone, fm_clean, '', '', '', fm_clean, 'FM SELF', 'N', ''],
+                        'is_zone_total': False,
+                        'is_vacant': 'N'
+                    })
+                    
+                    # MPOs
+                    num_mpos = len(markets)
+                    for m_idx, m in enumerate(markets):
+                        zonal_layout_rows.append({
+                            'zonal_col': curr_col + 1 + m_idx,
+                            'meta': [zone, fm_clean, m.get('market_name', ''), m.get('mpo_code', ''), m.get('fm_code', ''), m['mpo_name'] or 'VACANT', 'MPO', m.get('is_vacant', 'N'), m.get('da_name', '')],
+                            'is_zone_total': False,
+                            'is_vacant': m.get('is_vacant', 'N')
+                        })
+
+                    # DAs
+                    das = []
+                    for m in markets:
+                        if m['da_name'] and str(m['da_name']).strip().upper() != 'VACANT':
+                            da_str = str(m['da_name']).strip().upper()
+                            if da_str not in das:
+                                das.append(da_str)
+                    num_das = len(das)
+                    for d_idx, da_str in enumerate(das):
+                        zonal_layout_rows.append({
+                            'zonal_col': curr_col + 1 + num_mpos + d_idx,
+                            'meta': [zone, fm_clean, '', '', '', da_str, 'DA', 'N', ''],
+                            'is_zone_total': False,
+                            'is_vacant': 'N'
+                        })
+                    
+                    curr_col += 1 + num_mpos + num_das
+
+                for row_data in zonal_layout_rows:
+                    zonal_col_idx = row_data['zonal_col']
+                    meta = row_data['meta']
+                    
+                    if row_data['is_zone_total']:
+                        zone_total_rows.append(row_num)
+
+                    # Build bulk lists
+                    meta_updates.append(meta)
+
+                    col_letter = get_column_letter(zonal_col_idx)
+                    importrange_formula = f'=TRANSPOSE(IMPORTRANGE("{zonal_url}", "{month_str}!{col_letter}18:{col_letter}{18 + num_days - 1}"))'
+                    formula_updates.append([importrange_formula])
+
+                    first_date_col = 'J'
+                    last_date_col = get_column_letter(9 + num_days)
+                    row_total_formula = f'=SUM({first_date_col}{row_num}:{last_date_col}{row_num})'
+                    total_updates.append([row_total_formula])
+
+                    row_num += 1
+
+            if meta_updates:
+                # Bulk update metadata (Col A to I)
+                depot_ws.update(range_name=f'A8:I{8+len(meta_updates)-1}', values=meta_updates, value_input_option='USER_ENTERED')
+                # Bulk update formulas (Col J)
+                depot_ws.update(range_name=f'J8:J{8+len(formula_updates)-1}', values=formula_updates, value_input_option='USER_ENTERED')
+                # Bulk update row totals (Col DEPOT TOTAL)
+                total_col_letter = get_column_letter(10 + num_days)
+                depot_ws.update(range_name=f'{total_col_letter}8:{total_col_letter}{8+len(total_updates)-1}', values=total_updates, value_input_option='USER_ENTERED')
+
+            # Write DEPOT TOTAL row at the bottom
+            depot_total_row_idx = row_num
+            depot_ws.update(range_name=f'F{depot_total_row_idx}:H{depot_total_row_idx}', values=[['DEPOT TOTAL', 'TOTAL', 'N']], value_input_option='USER_ENTERED')
+
+            depot_total_formulas = []
+            for col_idx in range(10, 10 + num_days):
+                col_letter = get_column_letter(col_idx)
+                parts = [f"{col_letter}{r}" for r in zone_total_rows]
+                depot_total_formulas.append(f'=SUM({",".join(parts)})' if parts else 0)
+
+            first_date_col = 'J'
+            last_date_col = get_column_letter(9 + num_days)
+            depot_total_formulas.append(f'=SUM(J{depot_total_row_idx}:{last_date_col}{depot_total_row_idx})')
+
+            depot_ws.update(range_name=f'J{depot_total_row_idx}', values=[depot_total_formulas], value_input_option='USER_ENTERED')
+
+            # Apply formatting, gridlines, zoom, freeze pane, and hide metadata columns
+            try:
+                body = {
+                    "requests": [
+                        {
+                            "updateSheetProperties": {
+                                "properties": {
+                                    "sheetId": depot_ws.id,
+                                    "gridProperties": {
+                                        "frozenRowCount": 7,
+                                        "frozenColumnCount": 9
+                                    }
+                                },
+                                "fields": "gridProperties.frozenRowCount,gridProperties.frozenColumnCount"
+                            }
+                        },
+                        {
+                            "updateDimensionProperties": {
+                                "range": {
+                                    "sheetId": depot_ws.id,
+                                    "dimension": "COLUMNS",
+                                    "startIndex": 0,
+                                    "endIndex": 5
+                                },
+                                "properties": {
+                                    "hiddenByUser": True
+                                },
+                                "fields": "hiddenByUser"
+                            }
+                        },
+                        {
+                            "updateDimensionProperties": {
+                                "range": {
+                                    "sheetId": depot_ws.id,
+                                    "dimension": "COLUMNS",
+                                    "startIndex": 7,
+                                    "endIndex": 9
+                                },
+                                "properties": {
+                                    "hiddenByUser": True
+                                },
+                                "fields": "hiddenByUser"
+                            }
+                        }
+                    ]
+                }
+                sheets_service.spreadsheets().batchUpdate(spreadsheetId=depot_ss.id, body=body).execute()
+            except Exception as format_err:
+                log_message(f"  Note during formatting depot sheet: {format_err}")
+
+            log_message(f"  Updated depot sheet: {depot_name}")
+
+        except Exception as e:
+            log_message(f"  Error updating depot sheet {depot_name}: {e}")
+
+    log_message("Depot Summary Sheets update completed!")
+
+
+def update_national_sheet(gc, drive_service, sheets_service, month_str, num_days, dry_run=False):
+    """Update the National Grand Total sheet by aggregating all depot totals.
+       Sheet contains: Depot names as rows, dates as columns, Grand Total at bottom.
+       Data pulled via IMPORTRANGE from depot sheets.
+    """
+    log_message(f"\n--- Updating National Grand Total Sheet for {month_str} ---")
+
+    valid_fms = fetch_master_data(gc)
+
+    # Build depot list
+    depot_zones = {}
+    for fm_name, fm_data in valid_fms.items():
+        depot = fm_data.get('depot', fm_data['zone'])
+        if depot not in depot_zones:
+            depot_zones[depot] = []
+        if fm_data['zone'] not in depot_zones[depot]:
+            depot_zones[depot].append(fm_data['zone'])
+
+    # Get National sheet URL
+    national_url = None
+    try:
+        with open(os.path.join(BASE_DIR, 'uploaded_sheets_links.json'), 'r') as f:
+            depot_config = json.load(f)
+            national_url = depot_config.get('NATIONAL_CASH_IN_HAND_Summary')
+    except Exception:
+        pass
+
+    if not national_url:
+        log_message("  Warning: No National sheet URL found")
+        return
+
+    if dry_run:
+        log_message(f"  [DRY-RUN] Would update National sheet")
+        return
+
+    # Get depot sheet URLs from existing config
+    depot_urls = {}
+    try:
+        with open(os.path.join(BASE_DIR, 'uploaded_sheets_links.json'), 'r') as f:
+            depot_config = json.load(f)
+            for key, url in depot_config.items():
+                if 'DEPOT' in key:
+                    depot_name = key.replace('_DEPOT_CASH_IN_HAND_Summary', '').replace('_', ' ')
+                    depot_urls[depot_name] = url
+    except Exception:
+        pass
+
+    try:
+        national_ss = gc.open_by_url(national_url)
+        national_ws = national_ss.get_worksheet(0)
+
+        # Clear existing values
+        national_ws.clear()
+
+        # Unmerge all cells in the sheet first to avoid freeze pane error
+        try:
+            sheets_service.spreadsheets().batchUpdate(
+                spreadsheetId=national_ss.id,
+                body={"requests": [{"unmergeCells": {"range": {"sheetId": national_ws.id}}}]}
+                ).execute()
+        except Exception as unmerge_err:
+            log_message(f"  Warning during unmerge: {unmerge_err}")
+
+        # Header
+        headers = ["ZONE", "FM NAME", "MARKET", "MPO CODE", "FM CODE", "NAME", "ROLE", "VACANT", "DA NAME"] + \
+                  [f"{d} {month_str}" for d in range(num_days, 0, -1)] + ["GRAND\nTOTAL"]
+        national_ws.update(range_name='A1', values=[headers], value_input_option='USER_ENTERED')
+
+        # We will populate rows starting at Row 8
+        row_num = 8
+        depot_total_rows = []
+        
+        meta_updates = []
+        formula_updates = []
+        total_updates = []
+
+        for depot_name, zones in depot_zones.items():
+            depot_url = depot_urls.get(depot_name)
+            if not depot_url:
+                for key, url in depot_urls.items():
+                    if depot_name.upper() in key.upper() or key.upper() in depot_name.upper():
+                        depot_url = url
+                        break
+
+            if not depot_url:
+                log_message(f"  Warning: No depot sheet URL found for {depot_name}")
+                continue
+
+            depot_layout_rows = []
+            d_current = 8
+
+            for zone in zones:
+                zone_fms = {k: v for k, v in valid_fms.items() if v['zone'] == zone}
+                def fm_sort_key(item):
+                    f_name = item[0]
+                    fm_clean = f_name.split(',')[0].strip().upper()
+                    if zone == 'CTG.B':
+                        order = ["JAINAL ABEDIN AKHAND", "FIROZ AHMED", "NARAYAN DAS", "SHAHJAHAN"]
+                    else:
+                        order = ["MONIR UDDIN", "RAFIQUL MOULA", "VACANT, KHAGRACHARI"]
+                    for idx, name in enumerate(order):
+                        if name in fm_clean:
+                            return idx
+                    return 99
+
+                sorted_zone_fms = dict(sorted(zone_fms.items(), key=fm_sort_key))
+
+                # Zone Summary
+                depot_layout_rows.append({
+                    'd_row': d_current,
+                    'meta': [zone, '', '', '', '', 'ZONE SUMMARY', 'TOTAL', 'N', ''],
+                    'is_depot_total': False
+                })
+                d_current += 1
+                
+                # SH SELF
+                depot_layout_rows.append({
+                    'd_row': d_current,
+                    'meta': [zone, '', '', '', '', 'SH SELF', 'SH', 'N', ''],
+                    'is_depot_total': False
+                })
+                d_current += 1
+
+                for f_name, f_data in sorted_zone_fms.items():
+                    fm_clean = f_name.split(',')[0].strip()
+                    markets = f_data['markets']
+
+                    # FM TOTAL
+                    depot_layout_rows.append({
+                        'd_row': d_current,
+                        'meta': [zone, fm_clean, '', '', '', f"{fm_clean} TOTAL", 'TOTAL', 'N', ''],
+                        'is_depot_total': False
+                    })
+                    d_current += 1
+
+                    # FM SELF
+                    depot_layout_rows.append({
+                        'd_row': d_current,
+                        'meta': [zone, fm_clean, '', '', '', fm_clean, 'FM SELF', 'N', ''],
+                        'is_depot_total': False
+                    })
+                    d_current += 1
+
+                    # MPOs
+                    for m in markets:
+                        depot_layout_rows.append({
+                            'd_row': d_current,
+                            'meta': [zone, fm_clean, m.get('market_name', ''), m.get('mpo_code', ''), m.get('fm_code', ''), m['mpo_name'] or 'VACANT', 'MPO', m.get('is_vacant', 'N'), m.get('da_name', '')],
+                            'is_depot_total': False
+                        })
+                        d_current += 1
+
+                    # DAs
+                    das = []
+                    for m in markets:
+                        if m['da_name'] and str(m['da_name']).strip().upper() != 'VACANT':
+                            da_str = str(m['da_name']).strip().upper()
+                            if da_str not in das:
+                                das.append(da_str)
+                    for da_str in das:
+                        depot_layout_rows.append({
+                            'd_row': d_current,
+                            'meta': [zone, fm_clean, '', '', '', da_str, 'DA', 'N', ''],
+                            'is_depot_total': False
+                        })
+                        d_current += 1
+
+            # DEPOT TOTAL row at row d_current
+            depot_layout_rows.append({
+                'd_row': d_current,
+                'meta': [depot_name, '', '', '', '', 'DEPOT TOTAL', 'TOTAL', 'N', ''],
+                'is_depot_total': True
+            })
+
+            # Now write these rows to the National sheet using IMPORTRANGE from Depot sheet
+            for row_data in depot_layout_rows:
+                d_row = row_data['d_row']
+                meta = row_data['meta']
+                
+                if row_data['is_depot_total']:
+                    depot_total_rows.append(row_num)
+
+                meta_updates.append(meta)
+
+                depot_last_col = get_column_letter(9 + num_days)
+                importrange_formula = f'=IMPORTRANGE("{depot_url}", "{month_str}!J{d_row}:{depot_last_col}{d_row}")'
+                formula_updates.append([importrange_formula])
+
+                first_date_col = 'J'
+                last_date_col = get_column_letter(9 + num_days)
+                row_total_formula = f'=SUM({first_date_col}{row_num}:{last_date_col}{row_num})'
+                total_updates.append([row_total_formula])
+
+                row_num += 1
+
+        if meta_updates:
+            # Bulk update metadata (Col A to I)
+            national_ws.update(range_name=f'A8:I{8+len(meta_updates)-1}', values=meta_updates, value_input_option='USER_ENTERED')
+            # Bulk update formulas (Col J)
+            national_ws.update(range_name=f'J8:J{8+len(formula_updates)-1}', values=formula_updates, value_input_option='USER_ENTERED')
+            # Bulk update row totals (Col GRAND TOTAL)
+            total_col_letter = get_column_letter(10 + num_days)
+            national_ws.update(range_name=f'{total_col_letter}8:{total_col_letter}{8+len(total_updates)-1}', values=total_updates, value_input_option='USER_ENTERED')
+
+        # Write GRAND TOTAL row at the bottom
+        grand_total_row_idx = row_num
+        national_ws.update(range_name=f'F{grand_total_row_idx}:H{grand_total_row_idx}', values=[['GRAND TOTAL', 'TOTAL', 'N']], value_input_option='USER_ENTERED')
+
+        # Date-wise sums
+        grand_total_formulas = []
+        for col_idx in range(10, 10 + num_days):
+            col_letter = get_column_letter(col_idx)
+            # Sum only the Depot Total rows in this National sheet
+            parts = [f"{col_letter}{r}" for r in depot_total_rows]
+            grand_total_formulas.append(f'=SUM({",".join(parts)})' if parts else 0)
+
+        # Grand Total Depot cell
+        first_date_col = 'J'
+        last_date_col = get_column_letter(9 + num_days)
+        grand_total_formulas.append(f'=SUM(J{grand_total_row_idx}:{last_date_col}{grand_total_row_idx})')
+
+        national_ws.update(range_name=f'J{grand_total_row_idx}', values=[grand_total_formulas], value_input_option='USER_ENTERED')
+
+        # Apply formatting, gridlines, zoom, freeze pane, and hide metadata columns (A..E, H, I)
+        try:
+            body = {
+                "requests": [
+                    {
+                        "updateSheetProperties": {
+                            "properties": {
+                                "sheetId": national_ws.id,
+                                "gridProperties": {
+                                    "frozenRowCount": 7,
+                                    "frozenColumnCount": 9
+                                }
+                            },
+                            "fields": "gridProperties.frozenRowCount,gridProperties.frozenColumnCount"
+                        }
+                    },
+                    {
+                        "updateDimensionProperties": {
+                            "range": {
+                                "sheetId": national_ws.id,
+                                "dimension": "COLUMNS",
+                                "startIndex": 0,
+                                "endIndex": 5
+                            },
+                            "properties": {
+                                "hiddenByUser": True
+                            },
+                            "fields": "hiddenByUser"
+                        }
+                    },
+                    {
+                        "updateDimensionProperties": {
+                            "range": {
+                                "sheetId": national_ws.id,
+                                "dimension": "COLUMNS",
+                                "startIndex": 7,
+                                "endIndex": 9
+                            },
+                            "properties": {
+                                "hiddenByUser": True
+                            },
+                            "fields": "hiddenByUser"
+                        }
+                    }
+                ]
+            }
+            sheets_service.spreadsheets().batchUpdate(spreadsheetId=national_ss.id, body=body).execute()
+        except Exception as format_err:
+            log_message(f"  Note during formatting national sheet: {format_err}")
+
+        log_message("National Grand Total Sheet updated!")
+
+    except Exception as e:
+        log_message(f"Error updating National sheet: {e}")
 
 # Unified Provisioning Orchestrator
 def run_provisioning(selected_zones, month_str, num_days, dry_run=False, existing_action="overwrite"):
@@ -2218,6 +3377,18 @@ def run_provisioning(selected_zones, month_str, num_days, dry_run=False, existin
 
     # Dynamic invocation of Zonal Summary sheet generator
     run_zonal_summaries(selected_zones, month_str, num_days, dry_run=dry_run)
+
+    # Transposed Zonal Summary (dates as columns, persons as rows)
+    run_transposed_zonal_summaries(selected_zones, month_str, num_days, dry_run=dry_run)
+
+    # FM Fill Status Monitoring Sheet
+    create_fm_fill_status_sheet(gc, drive_service, month_str, num_days, selected_zones, dry_run=dry_run)
+
+    # Depot Summary Sheets
+    update_depot_sheets(gc, drive_service, sheets_service, month_str, num_days, selected_zones, dry_run=dry_run)
+
+    # National Grand Total Sheet
+    update_national_sheet(gc, drive_service, sheets_service, month_str, num_days, dry_run=dry_run)
 
 # Boss Summary Sheet updater during rollover
 def update_boss_summary_sheets(drive_service, gc, sheets_service, registry_records, month_str, num_days, dry_run=False):
@@ -2567,6 +3738,22 @@ def run_rollover(selected_zones, current_month_override=None, dry_run=False):
         # Filter registry records to only include those in selected zones
         filtered_records = [rec for rec in registry_records if rec.get('Zone') in selected_zones]
         update_boss_summary_sheets(drive_service, gc, sheets_service, filtered_records, final_target_month_str, final_num_days, dry_run=dry_run)
+
+    # Regenerate Zonal Summaries for the new month (currently missing in rollover!)
+    if final_target_month_str:
+        run_zonal_summaries(selected_zones, final_target_month_str, final_num_days, dry_run=dry_run)
+
+    # Regenerate TRANSPOSED Zonal Summaries for the new month
+    if final_target_month_str:
+        run_transposed_zonal_summaries(selected_zones, final_target_month_str, final_num_days, dry_run=dry_run)
+
+    # Regenerate Depot Summary Sheets
+    if final_target_month_str:
+        update_depot_sheets(gc, drive_service, sheets_service, final_target_month_str, final_num_days, selected_zones, dry_run=dry_run)
+
+    # Regenerate National Grand Total Sheet
+    if final_target_month_str:
+        update_national_sheet(gc, drive_service, sheets_service, final_target_month_str, final_num_days, dry_run=dry_run)
 
     log_message("Monthly Rollover process completed!")
 
@@ -3015,7 +4202,8 @@ class CashInHandApp(tk.Tk):
             "🟢 INSERT / GENERATE (Create if missing, Ignore if exists)",
             "🟠 OVERRIDE / REPLACE (Replace if exists, Create if missing)",
             "🔴 DELETE MONTH TAB (Delete selected month from workbooks)",
-            "🔵 ARCHIVE & LOCK PREV MONTH / ROLLOVER (Freeze old data & start new)"
+            "🔵 ARCHIVE & LOCK PREV MONTH / ROLLOVER (Freeze old data & start new)",
+            "🟣 GENERATE DEPOT AND NATIONAL REPORT (Compile summaries only, other sheets untouched)"
         ]
         self.action_cb = ttk.Combobox(action_frame, textvariable=self.action_var, values=action_options, width=58, state="readonly", exportselection=False)
         self.action_cb.grid(row=0, column=1, padx=10, pady=8, sticky="w")
@@ -3348,6 +4536,9 @@ class CashInHandApp(tk.Tk):
         elif "ROLLOVER" in action_sel:
             mode = "rollover"
             existing_action = "skip"
+        elif "GENERATE DEPOT AND NATIONAL REPORT" in action_sel:
+            mode = "depot_national_report"
+            existing_action = "overwrite"
         else:
             mode = "provision"
             existing_action = "overwrite"
@@ -3366,6 +4557,20 @@ class CashInHandApp(tk.Tk):
             t_del = threading.Thread(target=self.execute_process, args=(mode, zones, month_override, dry_run, existing_action))
             t_del.daemon = True
             t_del.start()
+            return
+        elif mode == "depot_national_report":
+            if not month_override:
+                month_str, _ = get_current_month_info(get_dhaka_today())
+            else:
+                month_str = month_override.upper()
+            confirm_msg = f"Are you sure you want to Generate/Update Depot and National Reports for [{month_str}]?\n\nThis will only update the Depot and National spreadsheets. All other sheets (FM sheets, Zonal sheets) will remain completely untouched."
+            if not messagebox.askyesno("CONFIRM REPORT GENERATION", confirm_msg, icon="info"):
+                self.run_btn.configure(state="normal")
+                return
+            self.gui_log(f"\nStarting Depot & National Report Generation for {month_str}...\n")
+            t_rep = threading.Thread(target=self.execute_process, args=(mode, zones, month_override, dry_run, existing_action))
+            t_rep.daemon = True
+            t_rep.start()
             return
 
         self.gui_log("Analyzing Google Drive, checking existing sheets, and detecting system deltas...\n")
@@ -3507,6 +4712,24 @@ class CashInHandApp(tk.Tk):
                 else:
                     month_str = month_override.upper()
                 execute_delete_month_tab(zones, month_str, dry_run=dry_run)
+            elif mode == "depot_national_report":
+                if not month_override:
+                    month_str, num_days = get_current_month_info(datetime.date.today())
+                else:
+                    month_str = month_override.upper()
+                    parsed = parse_month_str(month_str)
+                    if parsed:
+                        _, num_days = calendar.monthrange(parsed[0], parsed[1])
+                    else:
+                        num_days = 31
+                
+                creds = get_oauth_credentials()
+                gc = gspread.authorize(creds)
+                drive_service = build('drive', 'v3', credentials=creds)
+                sheets_service = build('sheets', 'v4', credentials=creds)
+                
+                update_depot_sheets(gc, drive_service, sheets_service, month_str, num_days, zones, dry_run=dry_run)
+                update_national_sheet(gc, drive_service, sheets_service, month_str, num_days, dry_run=dry_run)
         except Exception as e:
             self.gui_log(f"\nFATAL SYSTEM ERROR: {e}\n")
         finally:
