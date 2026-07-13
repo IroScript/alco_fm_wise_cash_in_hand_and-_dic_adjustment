@@ -255,7 +255,17 @@ def fetch_master_data(gc):
             'da_name': da_clean
         })
 
-    valid_groups = {k: v for k, v in fm_groups.items() if any(not m['is_vacant'] for m in v['markets'])}
+    def is_valid_fm_group(key, fm_data):
+        fm_name, zone = key
+        if fm_name and fm_name.strip().upper() != 'VACANT':
+            return True
+        if any(m.get('da_name') for m in fm_data['markets']):
+            return True
+        if any(not m['is_vacant'] for m in fm_data['markets']):
+            return True
+        return False
+
+    valid_groups = {k: v for k, v in fm_groups.items() if is_valid_fm_group(k, v)}
     name_zone_counts = {}
     for (name, z) in valid_groups.keys():
         name_zone_counts[name] = name_zone_counts.get(name, 0) + 1
@@ -507,6 +517,25 @@ def share_file(drive_service, file_id, email, role='writer'):
     except Exception as e:
         log_message(f"Error sharing file {file_id} with {email}: {e}")
 
+def find_total_cash_in_hand_column(ws):
+    try:
+        all_vals = ws.get_values("A5:Z16")
+        for row in all_vals:
+            for c_idx, cell_val in enumerate(row):
+                val_str = str(cell_val).strip().upper()
+                if "TOTAL CASH IN HAND" in val_str or "TOTAL CASH" in val_str:
+                    return c_idx + 1
+        max_c = 0
+        for row in all_vals[:7]:
+            for c_idx, cell_val in enumerate(row):
+                if str(cell_val).strip():
+                    max_c = max(max_c, c_idx + 1)
+        if max_c >= 3:
+            return max_c
+    except Exception:
+        pass
+    return 13
+
 # Sheet Locking Helper (Protected Range)
 def lock_sheet(sheets_service, spreadsheet_id, sheet_id, owner_email, message="Locked archive"):
     try:
@@ -598,19 +627,102 @@ def sort_and_protect_spreadsheet_tabs(gc, sheets_service, sheet_id, editors_list
                             }
                         }
                     })
-                else:
                     try:
                         ws_obj = ss.worksheet(title)
-                        row_11 = [str(x).strip().upper() for x in ws_obj.row_values(11)]
-                        try:
-                            t_col_idx = row_11.index("TOTAL CASH IN HAND") + 1
-                        except Exception:
-                            t_col_idx = 11
+                        t_col_idx = find_total_cash_in_hand_column(ws_obj)
                     except Exception:
-                        t_col_idx = 11
+                        t_col_idx = 13
                         
                     _, num_days = calendar.monthrange(yr, mo)
                     editors = [e for e in (editors_list or []) if e]
+
+                    # Step 1: Unfreeze columns first
+                    requests.append({
+                        "updateSheetProperties": {
+                            "properties": {
+                                "sheetId": s_id,
+                                "gridProperties": {
+                                    "frozenColumnCount": 0
+                                }
+                            },
+                            "fields": "gridProperties.frozenColumnCount"
+                        }
+                    })
+                    
+                    # Step 2: Unmerge B2:M3, clear B2, set C2="CASH IN HAND" (#00F2FE, size 26), merge C2:M3
+                    requests.append({
+                        "unmergeCells": {
+                            "range": {
+                                "sheetId": s_id,
+                                "startRowIndex": 1,
+                                "endRowIndex": 3,
+                                "startColumnIndex": 1,
+                                "endColumnIndex": t_col_idx
+                            }
+                        }
+                    })
+                    requests.append({
+                        "updateCells": {
+                            "range": {
+                                "sheetId": s_id,
+                                "startRowIndex": 1,
+                                "endRowIndex": 2,
+                                "startColumnIndex": 1,
+                                "endColumnIndex": 3
+                            },
+                            "rows": [
+                                {
+                                    "values": [
+                                        {"userEnteredValue": {"stringValue": ""}},
+                                        {
+                                            "userEnteredValue": {"stringValue": "CASH IN HAND"},
+                                            "userEnteredFormat": {
+                                                "horizontalAlignment": "CENTER",
+                                                "verticalAlignment": "MIDDLE",
+                                                "textFormat": {
+                                                    "bold": True,
+                                                    "fontSize": 26,
+                                                    "foregroundColor": {
+                                                        "red": 0.0,
+                                                        "green": 0.9490196,
+                                                        "blue": 0.9960784
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            ],
+                            "fields": "userEnteredValue,userEnteredFormat.horizontalAlignment,userEnteredFormat.verticalAlignment,userEnteredFormat.textFormat"
+                        }
+                    })
+                    requests.append({
+                        "mergeCells": {
+                            "range": {
+                                "sheetId": s_id,
+                                "startRowIndex": 1,
+                                "endRowIndex": 3,
+                                "startColumnIndex": 2,
+                                "endColumnIndex": t_col_idx
+                            },
+                            "mergeType": "MERGE_ALL"
+                        }
+                    })
+
+                    # Step 3: Set freeze panes for DATE column only (frozenColumnCount = 2)
+                    requests.append({
+                        "updateSheetProperties": {
+                            "properties": {
+                                "sheetId": s_id,
+                                "gridProperties": {
+                                    "frozenRowCount": 17,
+                                    "frozenColumnCount": 2
+                                }
+                            },
+                            "fields": "gridProperties.frozenRowCount,gridProperties.frozenColumnCount"
+                        }
+                    })
+
                     requests.append({
                         "addProtectedRange": {
                             "protectedRange": {
@@ -992,9 +1104,9 @@ def execute_missing_markets_provisioning(gc, drive_service, sheets_service, miss
                 ss = gc.open_by_key(sheet_id)
                 ws = ss.get_worksheet(0)
                 try:
-                    total_col_idx = [str(x).strip().upper() for x in ws.row_values(11)].index("TOTAL CASH IN HAND") + 1
+                    total_col_idx = find_total_cash_in_hand_column(ws)
                 except Exception:
-                    total_col_idx = 11
+                    total_col_idx = 13
                 
                 editors_list = [e for e in [boss_email, sh_email] if e]
                 reqs = [{
@@ -1068,7 +1180,7 @@ def create_local_excel(fm_name, fm_data, month_str, num_days):
     B_LIGHT       = 'E2E8F0'
     B_TOTAL       = '6EE7B7'
 
-    font_title    = Font(name=FONT_FAMILY, size=18, bold=True,  color=T_NEON)
+    font_title    = Font(name=FONT_FAMILY, size=26, bold=True,  color='00F2FE')
     font_hdr      = Font(name=FONT_FAMILY, size=10, bold=True,  color=T_WHITE)
     font_sub      = Font(name=FONT_FAMILY, size=9,  bold=True,  color=T_SLATE)
     font_name     = Font(name=FONT_FAMILY, size=10, bold=True,  color=T_WHITE)
@@ -1133,16 +1245,16 @@ def create_local_excel(fm_name, fm_data, month_str, num_days):
     for r in range(18, 18 + len(dates)):
         ws.row_dimensions[r].height = 20
         
-    ws.freeze_panes = 'D18'
+    ws.freeze_panes = 'C18'
     
-    ws.merge_cells(start_row=2, start_column=2, end_row=3, end_column=total_cols+1)
-    title_cell = ws.cell(row=2, column=2, value="CASH IN HAND")
+    ws.merge_cells(start_row=2, start_column=3, end_row=3, end_column=total_cols+1)
+    title_cell = ws.cell(row=2, column=3, value="CASH IN HAND")
     title_cell.font = font_title
     title_cell.fill = fill_void
     title_cell.alignment = align_center
     
     for r in range(2, 4):
-        for c in range(2, total_cols + 2):
+        for c in range(3, total_cols + 2):
             cell = ws.cell(row=r, column=c)
             cell.fill = fill_void
             left = side('medium', B_NEON) if c == 2 else None
@@ -1381,7 +1493,7 @@ def create_local_zonal_excel(zone, zone_fms, registry_map, output_path, month_st
     B_LIGHT       = 'E2E8F0'
     B_TOTAL       = '6EE7B7'
 
-    font_title    = Font(name=FONT_FAMILY, size=18, bold=True,  color=T_NEON)
+    font_title    = Font(name=FONT_FAMILY, size=26, bold=True,  color='00F2FE')
     font_hdr      = Font(name=FONT_FAMILY, size=10, bold=True,  color=T_WHITE)
     font_sub      = Font(name=FONT_FAMILY, size=9,  bold=True,  color=T_SLATE)
     font_name     = Font(name=FONT_FAMILY, size=10, bold=True,  color=T_WHITE)
@@ -2345,12 +2457,8 @@ def run_rollover(selected_zones, current_month_override=None, dry_run=False):
                 log_message("Warning: No template sheet found to duplicate. Skipping.")
                 continue
 
-            # Find the total cash in hand column dynamically to fix the shifting bug
-            row_11_values = [str(x).strip().upper() for x in new_ws.row_values(11)]
-            try:
-                total_col_idx = row_11_values.index("TOTAL CASH IN HAND") + 1
-            except ValueError:
-                total_col_idx = len(row_11_values)
+            # Find the total cash in hand column dynamically
+            total_col_idx = find_total_cash_in_hand_column(new_ws)
                 
             total_col_letter = get_column_letter(total_col_idx)
             last_input_col_letter = get_column_letter(total_col_idx - 1)
@@ -3085,11 +3193,7 @@ class CashInHandApp(tk.Tk):
                         continue
                         
                     self.gui_log(f"Fixing formulas & number formatting for: {fm_name} ({zone})...\n")
-                    row_11_values = [str(x).strip().upper() for x in target_ws.row_values(11)]
-                    try:
-                        total_col_idx = row_11_values.index("TOTAL CASH IN HAND") + 1
-                    except ValueError:
-                        total_col_idx = len(row_11_values) if row_11_values else 10
+                    total_col_idx = find_total_cash_in_hand_column(target_ws)
                         
                     total_col_letter = get_column_letter(total_col_idx)
                     last_input_col_letter = get_column_letter(total_col_idx - 1)

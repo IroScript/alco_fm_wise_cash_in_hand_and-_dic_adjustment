@@ -1,6 +1,7 @@
 *.xlsx
 *.xls
 *.json
+!sh_by_zone.json
 __pycache__/
 *.pyc
 .vscode/

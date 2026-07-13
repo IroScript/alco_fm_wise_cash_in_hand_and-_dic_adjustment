@@ -187,8 +187,8 @@ for fm_name, fm_data in valid_fms.items():
     for r in range(18, 49):
         ws.row_dimensions[r].height = 20
         
-    # Lock Name + Date Headers (Freeze D18)
-    ws.freeze_panes = 'D18'
+    # Lock Name + Date Headers (Freeze C18 - only DATE column frozen)
+    ws.freeze_panes = 'C18'
     
     # Title Block (Merged B2:K3 equivalent)
     ws.merge_cells(start_row=2, start_column=2, end_row=3, end_column=total_cols+1)
