@@ -1,0 +1,60 @@
+**********************
+PowerShell transcript start
+Start time: 20260713190926
+Username: DESKTOP-9OMAAC9\Irak
+RunAs User: DESKTOP-9OMAAC9\Irak
+Configuration Name: 
+Machine: DESKTOP-9OMAAC9 (Microsoft Windows NT 10.0.19045.0)
+Host Application: C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.3.0_x64__8wekyb3d8bbwe\pwsh.dll -Command timeout /t 10 /nobreak >nul; python provision_dewan_jahangir_alam.py
+Process ID: 6112
+PSVersion: 7.6.3
+PSEdition: Core
+GitCommitId: 7.6.3
+OS: Microsoft Windows 10.0.19045
+Platform: Win32NT
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1, 6.0, 7.0
+PSRemotingProtocolVersion: 2.4
+SerializationVersion: 1.1.0.1
+WSManStackVersion: 3.0
+**********************
+
+[auto-save] Recording to: C:\Users\Irak\Desktop\deskTop\Cash in Hand and Dic Adjustment\terminal-logs\session_2026-07-13_19-09-26.txt
+
+PS>timeout /t 10 /nobreak >nul; python provision_dewan_jahangir_alam.py
+  �� ��ইট, ক��ম উইডথ), ��ই�� ��ন ��ব������র ��ত�� আপ��ড, ����কশন, ������শন — সব��� ��শদ���� ড����� কর��।
+
+
+  এরপর ��ই স���� ল��ক �ব� অ�সরণ ক�� ��ও��ন ������র আল��র ��ট�� স��ক ��ন ������র ��ত�� �ন��� ������ট করব। এ��র ���� ল��ক ��প হ�� ��। ������ ��ষ হও��
+����ই ��জ �� কর��।
+
+▸ Thought for 3s
+  The timer fired, let me check on the subagent's progress.
+
+● SendMessage(Message sent to "20a0dcf1-e38b-429e-b19d-9143c1c4a69a".)
+● Schedule(Wait cancelled (agent received a message during wait).) (ctrl+o to expand)
+
+  ��বএ���� গ��র���� ��ড ����ষণ কর��। ��ষ হও������ই স���� ল��ক অ�সরণ ক�� ��ট �ন��� ������ট করব।
+
+
+▸ Thought for 14s
+  Now I have the complete documentation from the subagent. Let me understand the k...
+  ��বএ����র ������ স����। এখন স���� ল��ক অ�সরণ ক�� ������ত ���� ���� কর��।
+
+
+● Create(C:/Users/Irak/Desktop/deskTop/Cash in Hand and Dic Adjustment/provision_dewan_jahangir_alam.py)
+● Bash(python provision_dewan_jahangir_alam.py)
+● Schedule() (ctrl+o to expand)
+
+  �গল এ��আই ����র ��ম��ক ������� (503 Unavailable) ���� ������। ��নআপ সফল হ���� (�ল ��ট ���� ও ������ এ�� ����র হ����)। �����ণ পর �ন��� ���� কর��।
+
+
+○ Bash(timeout /t 10 /nobreak >nul; python provision_dewan_jahangir_alam.py) (ctrl+o to expand)
+⢿  Running...
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+PS>$global:?
+False
+**********************
+PowerShell transcript end
+End time: 20260713190937
+**********************

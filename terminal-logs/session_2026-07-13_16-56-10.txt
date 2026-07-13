@@ -1,0 +1,60 @@
+**********************
+PowerShell transcript start
+Start time: 20260713165610
+Username: DESKTOP-9OMAAC9\Irak
+RunAs User: DESKTOP-9OMAAC9\Irak
+Configuration Name: 
+Machine: DESKTOP-9OMAAC9 (Microsoft Windows NT 10.0.19045.0)
+Host Application: C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.3.0_x64__8wekyb3d8bbwe\pwsh.dll -Command python test_safe_patch.py
+Process ID: 5984
+PSVersion: 7.6.3
+PSEdition: Core
+GitCommitId: 7.6.3
+OS: Microsoft Windows 10.0.19045
+Platform: Win32NT
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1, 6.0, 7.0
+PSRemotingProtocolVersion: 2.4
+SerializationVersion: 1.1.0.1
+WSManStackVersion: 3.0
+**********************
+
+[auto-save] Recording to: C:\Users\Irak\Desktop\deskTop\Cash in Hand and Dic Adjustment\terminal-logs\session_2026-07-13_16-56-10.txt
+
+PS>python test_safe_patch.py
+
+  ৩. ��ই��ল ���� ���� ও ক��ম ����:
+
+
+  • উপ��র ��ই��ল ��ক�� B ক��ম ���� আ���� ক�� C ক��ম ���� ���� ক�� ��ও�� হ����।
+
+  • এর ফ�� সবক�� ���� ������  DATE  ক��ম (ক��ম B) �������� ��জ হ�� ����।  FM SELF  (ক
+��ম C) ক����র ��জ
+  উ�� ����, ফ�� ����-���� ��ল ক��র সময়  FM SELF  ������ক���� ��ল কর��।
+
+
+  ৪. ই��ইল ��র��শন ����:
+
+
+  • ব����ল (BARI) ����র ������ FM ( golammortuzaalco77@gmail.com ) সহ সকল ����র ����
+�� ����
+  ক��ক����র ��ট ������ ��র��শন ��ই�� আপ��ট ক�� হ����।
+
+
+  ৫. ভ������র অ����শন আপ��ট (Next Month Readiness):
+
+
+  • ������র �ল ��ইথন ��ড **run_system.py** এ�� কন������শন ��ইল **sh_by_zone.json** ��
+ই�� সম��
+  ন�ন ল��ক (������র আল��র ��ট ������শন �লসহ) �������� আপ��ট ক�� ��ও�� হ����। আ���� ��
+�� ন�ন ��ট ������ট ��
+  ��লও��র ক��র সময় এই ন�ন ��য়ম���ই ������য়���� ��জ কর��।
+
+
+─────────────────────────────────────────────────────────────────────────────────────
+>
+PS>$global:?
+True
+**********************
+PowerShell transcript end
+End time: 20260713170453
+**********************

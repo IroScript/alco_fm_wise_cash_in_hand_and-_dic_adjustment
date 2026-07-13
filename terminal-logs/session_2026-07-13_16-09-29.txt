@@ -1,0 +1,70 @@
+**********************
+PowerShell transcript start
+Start time: 20260713160929
+Username: DESKTOP-9OMAAC9\Irak
+RunAs User: DESKTOP-9OMAAC9\Irak
+Configuration Name: 
+Machine: DESKTOP-9OMAAC9 (Microsoft Windows NT 10.0.19045.0)
+Host Application: C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.3.0_x64__8wekyb3d8bbwe\pwsh.dll -Command python -c "
+import os, gspread
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+
+TOKEN_FILE = 'FieldEdit/token.json'
+creds = Credentials.from_authorized_user_file(TOKEN_FILE, ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive'])
+gc = gspread.authorize(creds)
+drive_service = build('drive', 'v3', credentials=creds)
+
+res = drive_service.files().list(q=\"name = 'Master_Registry_Cash_In_Hand' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false\", spaces='drive', fields='files(id, name)').execute()
+files = res.get('files', [])
+print('Found Master Registry files:', len(files))
+if files:
+    reg_sheet = gc.open_by_key(files[0]['id'])
+    ws = reg_sheet.get_worksheet(0)
+    records = ws.get_all_values()
+    print(f'Registry has {len(records)-1} FM records:')
+    for r in records[1:10]:
+        print('  ', r)
+"
+Process ID: 2004
+PSVersion: 7.6.3
+PSEdition: Core
+GitCommitId: 7.6.3
+OS: Microsoft Windows 10.0.19045
+Platform: Win32NT
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1, 6.0, 7.0
+PSRemotingProtocolVersion: 2.4
+SerializationVersion: 1.1.0.1
+WSManStackVersion: 3.0
+**********************
+
+[auto-save] Recording to: C:\Users\Irak\Desktop\deskTop\Cash in Hand and Dic Adjustment\terminal-logs\session_2026-07-13_16-09-29.txt
+
+PS>python -c "
+import os, gspread
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+
+TOKEN_FILE = 'FieldEdit/token.json'
+creds = Credentials.from_authorized_user_file(TOKEN_FILE, ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive'])
+gc = gspread.authorize(creds)
+drive_service = build('drive', 'v3', credentials=creds)
+
+res = drive_service.files().list(q=\"name = 'Master_Registry_Cash_In_Hand' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false\", spaces='drive', fields='files(id, name)').execute()
+files = res.get('files', [])
+print('Found Master Registry files:', len(files))
+if files:
+    reg_sheet = gc.open_by_key(files[0]['id'])
+    ws = reg_sheet.get_worksheet(0)
+    records = ws.get_all_values()
+    print(f'Registry has {len(records)-1} FM records:')
+    for r in records[1:10]:
+        print('  ', r)
+"
+>
+PS>$global:?
+False
+**********************
+PowerShell transcript end
+End time: 20260713160930
+**********************

@@ -1,0 +1,58 @@
+**********************
+PowerShell transcript start
+Start time: 20260713182956
+Username: DESKTOP-9OMAAC9\Irak
+RunAs User: DESKTOP-9OMAAC9\Irak
+Configuration Name: 
+Machine: DESKTOP-9OMAAC9 (Microsoft Windows NT 10.0.19045.0)
+Host Application: C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.3.0_x64__8wekyb3d8bbwe\pwsh.dll -Command python provision_dewan_jahangir_alam.py
+Process ID: 12516
+PSVersion: 7.6.3
+PSEdition: Core
+GitCommitId: 7.6.3
+OS: Microsoft Windows 10.0.19045
+Platform: Win32NT
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1, 6.0, 7.0
+PSRemotingProtocolVersion: 2.4
+SerializationVersion: 1.1.0.1
+WSManStackVersion: 3.0
+**********************
+
+[auto-save] Recording to: C:\Users\Irak\Desktop\deskTop\Cash in Hand and Dic Adjustment\terminal-logs\session_2026-07-13_18-29-56.txt
+
+PS>python provision_dewan_jahangir_alam.py
+● Bash(python provision_dewan_jahangir_alam.py)
+● Read(C:/Users/Irak/.gemini/antigravity-cli/brain/0b2dc9ba-f63f-41ee-801a-4a909291d049/.system_generated/tasks/task-479.log)
+● Read(C:/Users/Irak/Desktop/deskTop/Cash in Hand and Dic Adjustment/terminal-logs/session_2026-07-13_18-28-20.txt)
+● Edit(C:/Users/Irak/Desktop/deskTop/Cash in Hand and Dic Adjustment/provision_dewan_jahangir_alam.py)
+● Bash(python provision_dewan_jahangir_alam.py)
+● Schedule(Finished waiting 60 seconds.) (ctrl+o to expand)
+
+  ��ও��ন ������র আল��র জ�� ন�ন �গল ��ট ����শন, ����র �������� ন�����করণ এ�� ������ CTG.B ��ন �������� ��র IMPORTRANGE ফ���� ��� ক��র ����স�� চল��।
+��ষ হও������ই আ�� আপ���� ������ ����ন করব।
+
+▸ Thought for 3s, 273 tokens
+  Investigating File Uploads
+
+● Edit(C:/Users/Irak/Desktop/deskTop/Cash in Hand and Dic Adjustment/provision_dewan_jahangir_alam.py)
+○ Bash(python provision_dewan_jahangir_alam.py)
+○ Schedule() (ctrl+o to expand)
+●
+● আপ��ড ������ ��ইপ ����ধন ক�� ������ �ন��য় ��ল�� ক�� হ����। এখনই ����� ������ ����ন কর��।
+
+
+● ManageTask(Task: 0b2dc9ba-f63f-41ee-801a-4a909291d049/task-496)
+● Read(C:/Users/Irak/Desktop/deskTop/Cash in Hand and Dic Adjustment/terminal-logs/session_2026-07-13_18-29-56.txt)
+● Schedule() (ctrl+o to expand)
+
+  ����স�� ��ষ প���� র����। স���� হও���
+                          র ���� ���� আপ���� ��ক সহ ��������শন ����ন কর��।
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+PS>$global:?
+True
+**********************
+PowerShell transcript end
+End time: 20260713183107
+**********************

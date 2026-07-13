@@ -1,0 +1,74 @@
+**********************
+PowerShell transcript start
+Start time: 20260713160905
+Username: DESKTOP-9OMAAC9\Irak
+RunAs User: DESKTOP-9OMAAC9\Irak
+Configuration Name: 
+Machine: DESKTOP-9OMAAC9 (Microsoft Windows NT 10.0.19045.0)
+Host Application: C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.3.0_x64__8wekyb3d8bbwe\pwsh.dll -Command python -c "
+import gspread
+from google.oauth2.service_account import Credentials
+
+SERVICE_ACCOUNT_FILE = 'FieldEdit/credentials/alco-pharma-drive-credentials.json'
+creds = Credentials.from_service_account_file(
+    SERVICE_ACCOUNT_FILE,
+    scopes=['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+)
+gc = gspread.authorize(creds)
+
+# Find Master Registry
+sheets = gc.openall()
+print('Found openable sheets count:', len(sheets))
+for s in sheets:
+    if 'Master_Registry' in s.title:
+        print('Registry Sheet ID:', s.id)
+        ws = s.get_worksheet(0)
+        rows = ws.get_all_values()
+        print('Registry contents count:', len(rows))
+        for r in rows[:15]:
+            print('  ', r)
+"
+Process ID: 9400
+PSVersion: 7.6.3
+PSEdition: Core
+GitCommitId: 7.6.3
+OS: Microsoft Windows 10.0.19045
+Platform: Win32NT
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1, 6.0, 7.0
+PSRemotingProtocolVersion: 2.4
+SerializationVersion: 1.1.0.1
+WSManStackVersion: 3.0
+**********************
+
+[auto-save] Recording to: C:\Users\Irak\Desktop\deskTop\Cash in Hand and Dic Adjustment\terminal-logs\session_2026-07-13_16-09-05.txt
+
+PS>python -c "
+import gspread
+from google.oauth2.service_account import Credentials
+
+SERVICE_ACCOUNT_FILE = 'FieldEdit/credentials/alco-pharma-drive-credentials.json'
+creds = Credentials.from_service_account_file(
+    SERVICE_ACCOUNT_FILE,
+    scopes=['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+)
+gc = gspread.authorize(creds)
+
+# Find Master Registry
+sheets = gc.openall()
+print('Found openable sheets count:', len(sheets))
+for s in sheets:
+    if 'Master_Registry' in s.title:
+        print('Registry Sheet ID:', s.id)
+        ws = s.get_worksheet(0)
+        rows = ws.get_all_values()
+        print('Registry contents count:', len(rows))
+        for r in rows[:15]:
+            print('  ', r)
+"
+>
+PS>$global:?
+False
+**********************
+PowerShell transcript end
+End time: 20260713160907
+**********************

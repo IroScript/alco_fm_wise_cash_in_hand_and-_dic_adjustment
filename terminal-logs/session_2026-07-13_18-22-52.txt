@@ -1,0 +1,52 @@
+**********************
+PowerShell transcript start
+Start time: 20260713182252
+Username: DESKTOP-9OMAAC9\Irak
+RunAs User: DESKTOP-9OMAAC9\Irak
+Configuration Name: 
+Machine: DESKTOP-9OMAAC9 (Microsoft Windows NT 10.0.19045.0)
+Host Application: C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.3.0_x64__8wekyb3d8bbwe\pwsh.dll -Command python -c "
+import openpyxl
+
+wb = openpyxl.load_workbook('FieldEdit/SAMPLE_FIELD_DATA_INPUT.xlsx', data_only=True)
+print('Sheets in SAMPLE_FIELD_DATA_INPUT:', wb.sheetnames)
+ws = wb['Tgt (2026) June']
+for r in range(1, ws.max_row+1):
+    row_vals = [str(ws.cell(r, c).value) for c in range(1, ws.max_column+1)]
+    row_str = ' '.join(row_vals).upper()
+    if 'JAHANGIR' in row_str or 'DEWAN' in row_str:
+        print(f'Row {r}: {row_vals[:12]}')
+"
+Process ID: 6636
+PSVersion: 7.6.3
+PSEdition: Core
+GitCommitId: 7.6.3
+OS: Microsoft Windows 10.0.19045
+Platform: Win32NT
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1, 6.0, 7.0
+PSRemotingProtocolVersion: 2.4
+SerializationVersion: 1.1.0.1
+WSManStackVersion: 3.0
+**********************
+
+[auto-save] Recording to: C:\Users\Irak\Desktop\deskTop\Cash in Hand and Dic Adjustment\terminal-logs\session_2026-07-13_18-22-52.txt
+
+PS>python -c "
+import openpyxl
+
+wb = openpyxl.load_workbook('FieldEdit/SAMPLE_FIELD_DATA_INPUT.xlsx', data_only=True)
+print('Sheets in SAMPLE_FIELD_DATA_INPUT:', wb.sheetnames)
+ws = wb['Tgt (2026) June']
+for r in range(1, ws.max_row+1):
+    row_vals = [str(ws.cell(r, c).value) for c in range(1, ws.max_column+1)]
+    row_str = ' '.join(row_vals).upper()
+    if 'JAHANGIR' in row_str or 'DEWAN' in row_str:
+        print(f'Row {r}: {row_vals[:12]}')
+"
+>
+PS>$global:?
+True
+**********************
+PowerShell transcript end
+End time: 20260713182254
+**********************

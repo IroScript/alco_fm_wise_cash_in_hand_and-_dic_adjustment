@@ -1,0 +1,60 @@
+**********************
+PowerShell transcript start
+Start time: 20260713173117
+Username: DESKTOP-9OMAAC9\Irak
+RunAs User: DESKTOP-9OMAAC9\Irak
+Configuration Name: 
+Machine: DESKTOP-9OMAAC9 (Microsoft Windows NT 10.0.19045.0)
+Host Application: C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.3.0_x64__8wekyb3d8bbwe\pwsh.dll -Command python test_safe_patch.py
+Process ID: 9528
+PSVersion: 7.6.3
+PSEdition: Core
+GitCommitId: 7.6.3
+OS: Microsoft Windows 10.0.19045
+Platform: Win32NT
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1, 6.0, 7.0
+PSRemotingProtocolVersion: 2.4
+SerializationVersion: 1.1.0.1
+WSManStackVersion: 3.0
+**********************
+
+[auto-save] Recording to: C:\Users\Irak\Desktop\deskTop\Cash in Hand and Dic Adjustment\terminal-logs\session_2026-07-13_17-31-17.txt
+
+PS>python test_safe_patch.py
+
+
+  ল�� ����ত হও�� ����:
+
+
+  1.  B2  ��ল�� স���� ���� ���� হ����।
+
+  2.  C2  ��ল ���� ��ই��ল ������ ���� ক�� হ��।
+
+  3. ক��ম B (DATE) এ�� ��জ ক�� হ����।
+
+  4. ���� ����প��: ������ ����র ���� ১০০% অপ��ব��ত ও �র��ত র���� ( Data 100% IDENTICA
+L before &
+  after patching! )।
+
+  ���� ��ট���র ��জ স���� হও�� ����ই আ�� আপ���� ��ই��ল ������ ������ ����ন করব।
+
+
+● ManageTask(Task: 0b2dc9ba-f63f-41ee-801a-4a909291d049/task-329)
+● Schedule() (ctrl+o to expand)
+
+  ����স�� ��ষ প���� চ�� এ���� (ই��ম�� ৬১�� এফএম ����র ��ই��ল ������র ও ��র��শন আপ��ট
+সফল হ����)!
+
+  সকল ����  B2  ��ল ���� ���� ����ত হ����,  C2  ��ল ���� ������ ����ড ��ই��ল ��������
+ত হ���� এ�� ���� শত��গ
+  অপ��ব��ত র����। আর �������র ম��ই স���� ��জ ��ষ হ�� ����।
+
+
+─────────────────────────────────────────────────────────────────────────────────────
+>
+PS>$global:?
+True
+**********************
+PowerShell transcript end
+End time: 20260713174254
+**********************

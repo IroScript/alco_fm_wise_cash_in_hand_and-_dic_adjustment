@@ -1,0 +1,100 @@
+**********************
+PowerShell transcript start
+Start time: 20260713185656
+Username: DESKTOP-9OMAAC9\Irak
+RunAs User: DESKTOP-9OMAAC9\Irak
+Configuration Name: 
+Machine: DESKTOP-9OMAAC9 (Microsoft Windows NT 10.0.19045.0)
+Host Application: C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.3.0_x64__8wekyb3d8bbwe\pwsh.dll -Command python -c "
+import gspread
+from google.oauth2.credentials import Credentials
+import json
+
+creds = Credentials.from_authorized_user_file(
+    r'FieldEdit\token.json',
+    ['https://www.googleapis.com/auth/spreadsheets','https://www.googleapis.com/auth/drive']
+)
+gc = gspread.authorize(creds)
+
+with open('zone_to_summary_sheets.json','r') as f:
+    zs = json.load(f)
+
+ctgb_id = zs.get('CTG.B')
+ss = gc.open_by_key(ctgb_id)
+ws = ss.get_worksheet(0)
+row5 = ws.row_values(5)
+print(f'Row 5 length: {len(row5)}')
+for i, v in enumerate(row5):
+    print(f'  Col {i+1}: [{v}]')
+"
+
+Process ID: 6740
+PSVersion: 7.6.3
+PSEdition: Core
+GitCommitId: 7.6.3
+OS: Microsoft Windows 10.0.19045
+Platform: Win32NT
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1, 6.0, 7.0
+PSRemotingProtocolVersion: 2.4
+SerializationVersion: 1.1.0.1
+WSManStackVersion: 3.0
+**********************
+
+[auto-save] Recording to: C:\Users\Irak\Desktop\deskTop\Cash in Hand and Dic Adjustment\terminal-logs\session_2026-07-13_18-56-56.txt
+
+PS>python -c "
+import gspread
+from google.oauth2.credentials import Credentials
+import json
+
+creds = Credentials.from_authorized_user_file(
+    r'FieldEdit\token.json',
+    ['https://www.googleapis.com/auth/spreadsheets','https://www.googleapis.com/auth/drive']
+)
+gc = gspread.authorize(creds)
+
+with open('zone_to_summary_sheets.json','r') as f:
+    zs = json.load(f)
+
+ctgb_id = zs.get('CTG.B')
+ss = gc.open_by_key(ctgb_id)
+ws = ss.get_worksheet(0)
+row5 = ws.row_values(5)
+print(f'Row 5 length: {len(row5)}')
+for i, v in enumerate(row5):
+    print(f'  Col {i+1}: [{v}]')
+"
+
+
+  spreadsheets().create()  ��ব��র — ফ�� কন����ন সম�� হ�� �� এ�� �������ক  sheetId  স
+��ক���� স����
+  হ��।
+  3. সকল ���� ASCII-����ক: উই��জ cp1252 এন���� ���� আর হ�� ��।
+
+
+  স���� হও������ই আ�� আপ���� ন�ন ��������ড ���� সরব��হ করব।
+
+
+▸ Thought for 8s
+  The provisioning completed successfully! But I notice one issue - the CTG.B
+Zona...
+  ��ও��ন ������র আল��র ��ট এ��র সফল���� ���� হ����! ত�� এক�� সম�� ���� ���� — CTG.B
+�������� IMPORTRANGE
+  ফ���� �ল���� ক��ম A-�� ব�� ���� (স��ক ����� ন�)। এ�� এখনই ����ধন কর��।
+
+
+  ন�ন ����র ���� (এ��র ��������ড): DEWAN JAHANGIR ALAM - Google Sheets
+
+  https://docs.google.com/spreadsheets/d/11saoHVovwWjtvaq88rROlPQ2JBn5MDJBjhERUrFE
+  FCE/edit
+
+● Bash(python -c ") (ctrl+o to expand)
+⣻  Running...
+─────────────────────────────────────────────────────────────────────────────────────
+>
+PS>$global:?
+True
+**********************
+PowerShell transcript end
+End time: 20260713185700
+**********************

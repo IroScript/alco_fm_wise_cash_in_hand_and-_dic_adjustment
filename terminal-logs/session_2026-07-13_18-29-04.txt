@@ -1,0 +1,59 @@
+**********************
+PowerShell transcript start
+Start time: 20260713182904
+Username: DESKTOP-9OMAAC9\Irak
+RunAs User: DESKTOP-9OMAAC9\Irak
+Configuration Name: 
+Machine: DESKTOP-9OMAAC9 (Microsoft Windows NT 10.0.19045.0)
+Host Application: C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.3.0_x64__8wekyb3d8bbwe\pwsh.dll -Command python provision_dewan_jahangir_alam.py
+Process ID: 11536
+PSVersion: 7.6.3
+PSEdition: Core
+GitCommitId: 7.6.3
+OS: Microsoft Windows 10.0.19045
+Platform: Win32NT
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1, 6.0, 7.0
+PSRemotingProtocolVersion: 2.4
+SerializationVersion: 1.1.0.1
+WSManStackVersion: 3.0
+**********************
+
+[auto-save] Recording to: C:\Users\Irak\Desktop\deskTop\Cash in Hand and Dic Adjustment\terminal-logs\session_2026-07-13_18-29-04.txt
+
+PS>python provision_dewan_jahangir_alam.py
+
+⚠ There was a network issue connecting to the server, please try again.
+Error ID: 82243753-caf3-4a32-992d-13957d51df8f-460
+
+────────────────────────────────────────────────────────────
+> net issue try again
+
+▸ Thought for 9s, 108 tokens
+  Implementing Network Resilience
+
+● Create(C:/Users/Irak/Desktop/deskTop/Cash in Hand and Dic Adjustment/provision_dewan_jahangir_alam.py)
+● Bash(python provision_dewan_jahangir_alam.py)
+● Edit(C:/Users/Irak/Desktop/deskTop/Cash in Hand and Dic Adjustment/provision_dewan_jahangir_alam.py)
+● Read(C:/Users/Irak/Desktop/deskTop/Cash in Hand and Dic Adjustment/provision_dewan_jahangir_alam.py)
+● Read(C:/Users/Irak/Desktop/deskTop/Cash in Hand and Dic Adjustment/provision_dewan_jahangir_alam.py)
+● Edit(C:/Users/Irak/Desktop/deskTop/Cash in Hand and Dic Adjustment/provision_dewan_jahangir_alam.py)
+● Edit(C:/Users/Irak/Desktop/deskTop/Cash in Hand and Dic Adjustment/provision_dewan_jahangir_alam.py)
+● Edit(C:/Users/Irak/Desktop/deskTop/Cash in Hand and Dic Adjustment/provision_dewan_jahangir_alam.py)
+● Bash(python provision_dewan_jahangir_alam.py)
+● Read(C:/Users/Irak/.gemini/antigravity-cli/brain/0b2dc9ba-f63f-41ee-801a-4a909291d049/.system_generated/tasks/task-479.log)
+● Read(C:/Users/Irak/Desktop/deskTop/Cash in Hand and Dic Adjustment/terminal-logs/session_2026-07-13_18-28-20.txt)
+● Edit(C:/Users/Irak/Desktop/deskTop/Cash in Hand and Dic Adjustment/provision_dewan_jahangir_alam.py)
+● Bash(python provision_dewan_jahangir_alam.py)
+● Schedule() (ctrl+o to expand)
+
+  ��ও��ন ������র আল��র জ�� ন�ন �গল ��ট ����শন, ����র �������� ন�����করণ এ�� ������ CTG.B ��ন �������� ��র IMPORTRANGE ফ���� ��� ক��র ����স�� চল��।
+��ষ হও������ই আ�� আপ���� ������ ����ন করব।
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+PS>$global:?
+False
+**********************
+PowerShell transcript end
+End time: 20260713182947
+**********************

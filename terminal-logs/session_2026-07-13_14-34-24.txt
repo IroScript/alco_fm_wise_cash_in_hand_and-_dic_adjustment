@@ -1,0 +1,104 @@
+**********************
+PowerShell transcript start
+Start time: 20260713143424
+Username: DESKTOP-9OMAAC9\Irak
+RunAs User: DESKTOP-9OMAAC9\Irak
+Configuration Name: 
+Machine: DESKTOP-9OMAAC9 (Microsoft Windows NT 10.0.19045.0)
+Host Application: C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.3.0_x64__8wekyb3d8bbwe\pwsh.dll -Command python -c "
+import os, json, openpyxl
+
+print('=== Searching for files containing Jahangir / Zahangir / Dewan ===')
+for root, dirs, files in os.walk('.'):
+    for f in files:
+        if f.endswith('.xlsx') or f.endswith('.json'):
+            p = os.path.join(root, f)
+            if 'temp' in f or '.git' in root or '__pycache__' in root:
+                continue
+            try:
+                if f.endswith('.json'):
+                    with open(p, 'r', encoding='utf-8') as jf:
+                        content = jf.read()
+                        if 'JAHANGIR' in content.upper() or 'ZAHANGIR' in content.upper() or 'DEWAN' in content.upper():
+                            print(f'Found in JSON: {p}')
+                elif f.endswith('.xlsx'):
+                    wb = openpyxl.load_workbook(p, read_only=True)
+                    for s in wb.sheetnames:
+                        ws = wb[s]
+                        for row in ws.iter_rows(values_only=True):
+                            r_str = ' '.join([str(x) for x in row if x is not None]).upper()
+                            if 'JAHANGIR' in r_str or 'ZAHANGIR' in r_str or 'DEWAN' in r_str:
+                                print(f'Found in XLSX {p} sheet {s}: {r_str[:120]}')
+            except Exception as e:
+                pass
+"
+Process ID: 11284
+PSVersion: 7.6.3
+PSEdition: Core
+GitCommitId: 7.6.3
+OS: Microsoft Windows 10.0.19045
+Platform: Win32NT
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1, 6.0, 7.0
+PSRemotingProtocolVersion: 2.4
+SerializationVersion: 1.1.0.1
+WSManStackVersion: 3.0
+**********************
+
+[auto-save] Recording to: C:\Users\Irak\Desktop\deskTop\Cash in Hand and Dic Adjustment\terminal-logs\session_2026-07-13_14-34-24.txt
+
+PS>python -c "
+import os, json, openpyxl
+
+print('=== Searching for files containing Jahangir / Zahangir / Dewan ===')
+for root, dirs, files in os.walk('.'):
+    for f in files:
+        if f.endswith('.xlsx') or f.endswith('.json'):
+            p = os.path.join(root, f)
+            if 'temp' in f or '.git' in root or '__pycache__' in root:
+                continue
+            try:
+                if f.endswith('.json'):
+                    with open(p, 'r', encoding='utf-8') as jf:
+                        content = jf.read()
+                        if 'JAHANGIR' in content.upper() or 'ZAHANGIR' in content.upper() or 'DEWAN' in content.upper():
+                            print(f'Found in JSON: {p}')
+                elif f.endswith('.xlsx'):
+                    wb = openpyxl.load_workbook(p, read_only=True)
+                    for s in wb.sheetnames:
+                        ws = wb[s]
+                        for row in ws.iter_rows(values_only=True):
+                            r_str = ' '.join([str(x) for x in row if x is not None]).upper()
+                            if 'JAHANGIR' in r_str or 'ZAHANGIR' in r_str or 'DEWAN' in r_str:
+                                print(f'Found in XLSX {p} sheet {s}: {r_str[:120]}')
+            except Exception as e:
+                pass
+"
+▸ Thought for 3s, 619 tokens
+  Investigating Missing Report
+
+● Search(Grep search for DEPOT_CASH_IN_HAND_Summary)
+● Search(Grep search for NATIONAL in run_system.py)
+● Search(Grep search for NATIONAL)
+● Read(C:/Users/Irak/Desktop/deskTop/Cash in Hand and Dic Adjustment/PowerShell.txt)
+● Read(C:/Users/Irak/Desktop/deskTop/Cash in Hand and Dic Adjustment/PowerShell.txt) (ctrl+o to expand)
+
+▸ Thought for 1s, 796 tokens
+  Initiating Diagnostics Script
+
+● Bash(python -c ") (ctrl+o to expand)
+
+▸ Thought for 1s, 870 tokens
+  Analyzing Output Revelation
+
+● Bash(python -c ")
+● CommandStatus()
+● ManageTask(You have 1 background task(s) currently running:) (ctrl+o to expand)
+⡿  Loading...
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+PS>$global:?
+True
+**********************
+PowerShell transcript end
+End time: 20260713143436
+**********************

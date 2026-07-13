@@ -1,0 +1,55 @@
+**********************
+PowerShell transcript start
+Start time: 20260713160941
+Username: DESKTOP-9OMAAC9\Irak
+RunAs User: DESKTOP-9OMAAC9\Irak
+Configuration Name: 
+Machine: DESKTOP-9OMAAC9 (Microsoft Windows NT 10.0.19045.0)
+Host Application: C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.3.0_x64__8wekyb3d8bbwe\pwsh.dll -Command python test_safe_patch.py
+Process ID: 9592
+PSVersion: 7.6.3
+PSEdition: Core
+GitCommitId: 7.6.3
+OS: Microsoft Windows 10.0.19045
+Platform: Win32NT
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1, 6.0, 7.0
+PSRemotingProtocolVersion: 2.4
+SerializationVersion: 1.1.0.1
+WSManStackVersion: 3.0
+**********************
+
+[auto-save] Recording to: C:\Users\Irak\Desktop\deskTop\Cash in Hand and Dic Adjustment\terminal-logs\session_2026-07-13_16-09-41.txt
+
+PS>python test_safe_patch.py
+
+
+────────────────────────────────────────────────────────────
+> well do it....but before you do,,,test it,,,verify it that it doesnt replace or delete old data
+
+▸ Thought for 5s, 591 tokens
+  Analyzing the Request Carefully
+
+● Bash(python -c ")
+● ListDir(C:/Users/Irak/Desktop/deskTop/Cash in Hand and Dic Adjustment/FieldEdit)
+● Read(C:/Users/Irak/Desktop/deskTop/Cash in Hand and Dic Adjustment/run_system.py)
+● Bash(python -c ")
+● Bash(python -c ") (ctrl+o to expand)
+
+▸ Thought for 7s, 239 tokens
+  Initiating Test Design
+
+● Create(C:/Users/Irak/Desktop/deskTop/Cash in Hand and Dic Adjustment/test_safe_patch.py)
+○ Bash(python test_safe_patch.py)
+● Read(C:/Users/Irak/.gemini/antigravity-cli/brain/0b2dc9ba-f...801a-4a909291d049/.system_generated/tasks/task-152.log)
+● CommandStatus()
+● ManageTask(You have 1 background task(s) currently running:)
+● Read(C:/Users/Irak/.gemini/antigravity-cli/brain/...291d049/.system_generated/tasks/task-152.log) (ctrl+o to expand)
+⣾  Working...
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+PS>$global:?
+False
+**********************
+PowerShell transcript end
+End time: 20260713161240
+**********************

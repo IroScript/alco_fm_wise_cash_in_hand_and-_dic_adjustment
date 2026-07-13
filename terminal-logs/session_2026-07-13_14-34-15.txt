@@ -1,0 +1,102 @@
+**********************
+PowerShell transcript start
+Start time: 20260713143415
+Username: DESKTOP-9OMAAC9\Irak
+RunAs User: DESKTOP-9OMAAC9\Irak
+Configuration Name: 
+Machine: DESKTOP-9OMAAC9 (Microsoft Windows NT 10.0.19045.0)
+Host Application: C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.3.0_x64__8wekyb3d8bbwe\pwsh.dll -Command python -c "
+import os, json, openpyxl
+
+print('=== 1. Checking Depot_Wise_Local_Samples ===')
+if os.path.exists('Depot_Wise_Local_Samples'):
+    print('Depot_Wise_Local_Samples files:', os.listdir('Depot_Wise_Local_Samples'))
+else:
+    print('Depot_Wise_Local_Samples folder does not exist.')
+
+print('\n=== 2. Checking Zahangir / Dewan Jahangir in Cash in Hand.xlsx ===')
+if os.path.exists('Cash in Hand.xlsx'):
+    wb = openpyxl.load_workbook('Cash in Hand.xlsx', data_only=True)
+    for sheetname in wb.sheetnames:
+        ws = wb[sheetname]
+        for r in range(1, ws.max_row+1):
+            row_vals = [str(ws.cell(r, c).value) for c in range(1, ws.max_column+1)]
+            row_str = ' '.join(row_vals).upper()
+            if 'JAHANGIR' in row_str or 'ZAHANGIR' in row_str:
+                print(f'Sheet: {sheetname}, Row {r}: {row_vals[:10]}')
+else:
+    print('Cash in Hand.xlsx not found.')
+
+print('\n=== 3. Checking BARI / Mortuza FM in BARI directory ===')
+if os.path.exists('BARI'):
+    print('BARI folder files:', os.listdir('BARI'))
+    for f in os.listdir('BARI'):
+        if 'MORTUZA' in f.upper():
+            file_path = os.path.join('BARI', f)
+            wb_m = openpyxl.load_workbook(file_path, data_only=True)
+            ws_m = wb_m.active
+            print(f'Mortuza file: {f}')
+            print('Row 11 values:')
+            row11 = [ws_m.cell(11, c).value for c in range(1, ws_m.max_column+1)]
+            for idx, val in enumerate(row11, 1):
+                col_letter = openpyxl.utils.get_column_letter(idx)
+                print(f'  Col {idx} ({col_letter}): {val}')
+"
+Process ID: 7896
+PSVersion: 7.6.3
+PSEdition: Core
+GitCommitId: 7.6.3
+OS: Microsoft Windows 10.0.19045
+Platform: Win32NT
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1, 6.0, 7.0
+PSRemotingProtocolVersion: 2.4
+SerializationVersion: 1.1.0.1
+WSManStackVersion: 3.0
+**********************
+
+[auto-save] Recording to: C:\Users\Irak\Desktop\deskTop\Cash in Hand and Dic Adjustment\terminal-logs\session_2026-07-13_14-34-15.txt
+
+PS>python -c "
+import os, json, openpyxl
+
+print('=== 1. Checking Depot_Wise_Local_Samples ===')
+if os.path.exists('Depot_Wise_Local_Samples'):
+    print('Depot_Wise_Local_Samples files:', os.listdir('Depot_Wise_Local_Samples'))
+else:
+    print('Depot_Wise_Local_Samples folder does not exist.')
+
+print('\n=== 2. Checking Zahangir / Dewan Jahangir in Cash in Hand.xlsx ===')
+if os.path.exists('Cash in Hand.xlsx'):
+    wb = openpyxl.load_workbook('Cash in Hand.xlsx', data_only=True)
+    for sheetname in wb.sheetnames:
+        ws = wb[sheetname]
+        for r in range(1, ws.max_row+1):
+            row_vals = [str(ws.cell(r, c).value) for c in range(1, ws.max_column+1)]
+            row_str = ' '.join(row_vals).upper()
+            if 'JAHANGIR' in row_str or 'ZAHANGIR' in row_str:
+                print(f'Sheet: {sheetname}, Row {r}: {row_vals[:10]}')
+else:
+    print('Cash in Hand.xlsx not found.')
+
+print('\n=== 3. Checking BARI / Mortuza FM in BARI directory ===')
+if os.path.exists('BARI'):
+    print('BARI folder files:', os.listdir('BARI'))
+    for f in os.listdir('BARI'):
+        if 'MORTUZA' in f.upper():
+            file_path = os.path.join('BARI', f)
+            wb_m = openpyxl.load_workbook(file_path, data_only=True)
+            ws_m = wb_m.active
+            print(f'Mortuza file: {f}')
+            print('Row 11 values:')
+            row11 = [ws_m.cell(11, c).value for c in range(1, ws_m.max_column+1)]
+            for idx, val in enumerate(row11, 1):
+                col_letter = openpyxl.utils.get_column_letter(idx)
+                print(f'  Col {idx} ({col_letter}): {val}')
+"
+>
+PS>$global:?
+True
+**********************
+PowerShell transcript end
+End time: 20260713143418
+**********************

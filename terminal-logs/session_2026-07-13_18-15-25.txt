@@ -1,0 +1,63 @@
+**********************
+PowerShell transcript start
+Start time: 20260713181525
+Username: DESKTOP-9OMAAC9\Irak
+RunAs User: DESKTOP-9OMAAC9\Irak
+Configuration Name: 
+Machine: DESKTOP-9OMAAC9 (Microsoft Windows NT 10.0.19045.0)
+Host Application: C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.3.0_x64__8wekyb3d8bbwe\pwsh.dll -Command git add .gitignore run_system.py run_system_patch.py sh_by_zone.json old_scripts/generate_fm_sheets.py; git commit -m "Update FM sheet generation, dynamic column locking, title formatting (C2 font size 26 #00F2FE), BARI zone email, and add idempotent run_system_patch.py"; git push origin main
+Process ID: 1164
+PSVersion: 7.6.3
+PSEdition: Core
+GitCommitId: 7.6.3
+OS: Microsoft Windows 10.0.19045
+Platform: Win32NT
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1, 6.0, 7.0
+PSRemotingProtocolVersion: 2.4
+SerializationVersion: 1.1.0.1
+WSManStackVersion: 3.0
+**********************
+
+[auto-save] Recording to: C:\Users\Irak\Desktop\deskTop\Cash in Hand and Dic Adjustment\terminal-logs\session_2026-07-13_18-15-25.txt
+
+PS>git add .gitignore run_system.py run_system_patch.py sh_by_zone.json old_scripts/generate_fm_sheets.py; git commit -m "Update FM sheet generation, dynamic column locking, title formatting (C2 font size 26 #00F2FE), BARI zone email, and add idempotent run_system_patch.py"; git push origin main
+> Never GitPush from YourSelf Until I tell you........
+> Never GitPush from YourSelf Until I tell you........
+  ভ������ ������ সম�� চল��ন ���� ������ ��ইভ ����র ���� ��র��শন �� ����স ���� ক��র জ�� এক�� ����, ����পদ ও আই��ম������ (Idempotent / Smart Skip) ��ই
+ল ���� ক�� ��ও�� হ����:
+
+  • ��ইল ����: **run_system_patch.py**
+  • ���� ���� ����র:
+
+      • ��চ ������ ��ল�� কর�� এ�� ��থ�� ��ক কর�� �� ���� এক�� ল��ক (��মন: ই��ইল ��র��শন �� ��ই��ল ����) ই��ম�� ����গ ক�� আ�� ����।
+
+      • য�� আ��র ল��ক ����গ ক�� ����, ত�� ���� ������য়���� ��প (Skip) কর��।
+
+      • য�� ���� ল��ক ����গ ক�� �� ���� �� অ��� ����, ত�� ������ ��ই পরব�� ��প��� ����প�� ����গ কর��।
+
+      • ���� ����প��: এ�� ���� অব��য় ��ব��র������র ইন�ট ��ও�� ���� ��� ��ল�� �� �� ও��র��ইট কর�� �� (Zero Data Touched)।
+
+
+  ──────
+  আপ��র ����শ��������ক উভয় ��ইল স���� ����ত ও ����ই�ত।
+
+
+────────────────────────────────────────────────────────────
+> Now GitPush https://github.com/IroScript/alco_fm_wise_cash_in_hand_and-_dic_adjustment
+
+● Bash(git status; git remote -v)
+● Read(C:/Users/Irak/Desktop/deskTop/Cash in Hand and Dic Adjustment/.gitignore)
+● Bash(git check-ignore -v sh_by_zone.json)
+● Edit(C:/Users/Irak/Desktop/deskTop/Cash in Hand and Dic Adjustment/.gitignore)
+● Bash(git status)
+○ Bash(git add .gitignore run_system.py run_system_patch.py sh_by_zone.json old_scripts/generate_fm_sheets.py; git commit -m "U...) (ctrl+o to
+expand)
+⣟  Running...
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+> Never GitPush from YourSelf Until I tell you........
+PS>$global:?
+True
+**********************
+PowerShell transcript end
+End time: 20260713181530
+**********************

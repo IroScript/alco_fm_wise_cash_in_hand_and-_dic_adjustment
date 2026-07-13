@@ -1,0 +1,54 @@
+**********************
+PowerShell transcript start
+Start time: 20260713175204
+Username: DESKTOP-9OMAAC9\Irak
+RunAs User: DESKTOP-9OMAAC9\Irak
+Configuration Name: 
+Machine: DESKTOP-9OMAAC9 (Microsoft Windows NT 10.0.19045.0)
+Host Application: C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.3.0_x64__8wekyb3d8bbwe\pwsh.dll -Command python test_safe_patch.py
+Process ID: 4824
+PSVersion: 7.6.3
+PSEdition: Core
+GitCommitId: 7.6.3
+OS: Microsoft Windows 10.0.19045
+Platform: Win32NT
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1, 6.0, 7.0
+PSRemotingProtocolVersion: 2.4
+SerializationVersion: 1.1.0.1
+WSManStackVersion: 3.0
+**********************
+
+[auto-save] Recording to: C:\Users\Irak\Desktop\deskTop\Cash in Hand and Dic Adjustment\terminal-logs\session_2026-07-13_17-52-04.txt
+
+PS>python test_safe_patch.py
+  ��ই��ল ফ�� ����র (#00F2FE) এ�� ফ�� ��ইজ ২৬ ফর���� আপ��ট ক��র ��জ�� ��ক��উ�� ����পদ
+������য় চল��। ��ষ হও��
+  ����ই আপ���� ������ ������ ����ন ক�� হ��।
+
+
+● ManageTask(Task: 0b2dc9ba-f63f-41ee-801a-4a909291d049/task-369)
+● Schedule(Finished waiting 240 seconds.) (ctrl+o to expand)
+
+  ����স�� গ����ল অব��য় সফল���� ��ম��র ���� এ���� ���� (ই��ম�� ৩১�� ���� ফ�� ��ইজ ২৬ ও
+ ����র #00F2FE আপ��ট
+  হ����)। সবক�� ���� প��ব��ন ��ষ হও�� ����ই আপ���� ����তকরণ ��������শন ����ন করব।
+
+
+● ManageTask(Task: 0b2dc9ba-f63f-41ee-801a-4a909291d049/task-369)
+● Schedule(Finished waiting 180 seconds.) (ctrl+o to expand)
+
+  ই��ম�� ৬১�� ���� ��ই��ল ফ�� ��ইজ ২৬ ও ����র #00F2FE সফল�� সহ���� আপ��ট হ�� ����। ��
+�� ������ ক��ক�� ��ট
+  ����স হ��। ��ষ হও������ই ����� ������ ��������শন ����ন করব।
+
+
+● ManageTask(Task: 0b2dc9ba-f63f-41ee-801a-4a909291d049/task-369) (ctrl+o to expand)
+⣾  Generating...
+─────────────────────────────────────────────────────────────────────────────────────
+>
+PS>$global:?
+True
+**********************
+PowerShell transcript end
+End time: 20260713180430
+**********************
