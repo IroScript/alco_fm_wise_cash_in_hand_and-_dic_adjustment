@@ -106,14 +106,27 @@ def clean_person_name(name, zone=None):
     name = re.sub(r'\b(MR|MD|MRS|MST|DR)\.?\s+', '', name, flags=re.IGNORECASE)
     if zone:
         z = str(zone).strip().upper()
-        if name.endswith(',' + z):
-            name = name[:-len(',' + z)].strip()
-        elif name.endswith(', ' + z):
-            name = name[:-len(', ' + z)].strip()
-        elif name.endswith('(' + z + ')'):
-            name = name[:-len('(' + z + ')')].strip()
-    elif ',' in name and 'VACANT' not in name and 'SH' not in name and 'ARM' not in name and 'RSM' not in name:
-        name = name.split(',')[0].strip()
+        z_alts = [z]
+        if "." in z:
+            z_alts.append(z.split('.')[0])
+        elif z == "RAJ":
+            z_alts.append("RAJ.A")
+        
+        for curr_z in z_alts:
+            if name.endswith(',' + curr_z):
+                name = name[:-len(',' + curr_z)].strip()
+            elif name.endswith(', ' + curr_z):
+                name = name[:-len(', ' + curr_z)].strip()
+            elif name.endswith('(' + curr_z + ')'):
+                name = name[:-len('(' + curr_z + ')')].strip()
+                
+    if ',' in name:
+        parts = [p.strip() for p in name.split(',')]
+        if parts[0] in ['SH', 'ARM', 'RSM', 'VACANT']:
+            name = parts[0]
+        elif not re.search(r'\b(VACANT|SH|ARM|RSM)\b', name):
+            name = parts[0]
+            
     name = re.sub(r'\s+', ' ', name)
     return name.strip()
 
@@ -407,18 +420,23 @@ def perform_company_master_sync_check(gc, selected_zones):
         return True
 
 def get_email_mappings(gc):
-    log_message("Fetching email mappings from Google Sheet...")
+    log_message("Fetching email mappings strictly from EMAIL_2026 worksheet...")
     sheet = gc.open_by_key(EMAIL_SHEET_ID)
-    ws = None
-    for w in sheet.worksheets():
-        if "EMAIL" in w.title.upper():
-            ws = w
-            break
-    if ws is None:
+    try:
+        ws = sheet.worksheet("EMAIL_2026")
+    except Exception:
+        log_message("Warning: EMAIL_2026 tab not found, falling back to first worksheet.")
         ws = sheet.get_worksheet(0)
+
+    mappings = {}
+    sh_by_zone = {}
+
     rows = ws.get_all_values()
-    
-    headers = [h.strip().upper() for h in rows[0]] if rows else []
+    if not rows:
+        return mappings, sh_by_zone
+
+    headers = [h.strip().upper() for h in rows[0]]
+
     def get_em_col(possible_names, fallback=-1):
         for n in possible_names:
             for idx, h in enumerate(headers):
@@ -426,46 +444,50 @@ def get_email_mappings(gc):
                     return idx
         return fallback
 
-    fm_col = get_em_col(['FM/AM, ZONE', 'FM/AM', 'FM NAME'], 0)
-    email_col = get_em_col(['EMAIL', 'MAIL ID', 'FM EMAIL'], 1)
+    fm_col = get_em_col(['FM/AM, ZONE', 'FM/AM', 'FM NAME', 'PERSON NAME'], 0)
+    email_col = get_em_col(['EMAIL', 'MAIL ID', 'FM EMAIL', 'EMAIL ADDRESS'], 1)
     sh_email_col = get_em_col(['SH EMAIL', 'SH MAIL', 'RH EMAIL'], -1)
     boss_email_col = get_em_col(['SM/DSM MAIL', 'BOSS EMAIL', 'SM MAIL', 'DSM MAIL', 'BOSS MAIL'], -1)
     boss_name_col = get_em_col(['SM NAME', 'BOSS NAME', 'DSM NAME'], -1)
     zone_col = get_em_col(['ZONE', 'ZONE NAME'], -1)
 
-    sh_by_zone = {}
     for r in rows[1:]:
-        if zone_col != -1 and sh_email_col != -1 and len(r) > max(zone_col, sh_email_col):
-            zone = str(r[zone_col]).strip().upper()
-            sh_email = str(r[sh_email_col]).strip()
-            if zone and sh_email and '@' in sh_email and zone not in sh_by_zone:
-                sh_by_zone[zone] = sh_email
-
-    mappings = {}
-    for r in rows[1:]:
-        if len(r) <= fm_col or not r[fm_col]:
+        if len(r) <= max(fm_col, email_col):
             continue
         fm_full = str(r[fm_col]).strip()
+        if not fm_full or fm_full.upper() == 'VACANT':
+            continue
+
         zone = str(r[zone_col]).strip().upper() if zone_col != -1 and len(r) > zone_col else ""
         fm_name_clean = clean_person_name(fm_full, zone)
-        
+
         email = str(r[email_col]).strip() if len(r) > email_col else ""
         boss_email = str(r[boss_email_col]).strip() if boss_email_col != -1 and len(r) > boss_email_col else ""
         boss_name = str(r[boss_name_col]).strip() if boss_name_col != -1 and len(r) > boss_name_col else ""
-        sh_email = sh_by_zone.get(zone, "")
-        
-        val = {
-            'email': email,
-            'boss_email': boss_email,
-            'boss_name': boss_name,
-            'sh_email': sh_email,
-            'zone': zone
-        }
-        if zone:
-            mappings[f"{zone}___{fm_name_clean}"] = val
-        if fm_name_clean not in mappings or ('VACANT' not in fm_name_clean and fm_name_clean not in ['SH', 'ARM', 'RSM']):
-            mappings[fm_name_clean] = val
+        sh_email = str(r[sh_email_col]).strip() if sh_email_col != -1 and len(r) > sh_email_col else ""
+
+        if zone and sh_email and '@' in sh_email and zone not in sh_by_zone:
+            sh_by_zone[zone] = sh_email
+
+        if email and '@' in email and '#N/A' not in email.upper():
+            val = {
+                'email': email,
+                'boss_email': boss_email,
+                'boss_name': boss_name,
+                'sh_email': sh_email,
+                'zone': zone
+            }
+            if zone:
+                key_z = f"{zone}___{fm_name_clean}"
+                if key_z not in mappings:
+                    mappings[key_z] = val
+            if fm_name_clean not in mappings or ('VACANT' not in fm_name_clean and fm_name_clean not in ['SH', 'ARM', 'RSM']):
+                mappings[fm_name_clean] = val
+
+    log_message(f"Successfully loaded {len(mappings)} email mappings from EMAIL_2026.")
     return mappings, sh_by_zone
+
+
 
 def lookup_email_mapping(email_mappings, fm_name, zone=None, sh_by_zone=None):
     cn = clean_person_name(fm_name, zone)
@@ -516,6 +538,45 @@ def share_file(drive_service, file_id, email, role='writer'):
         log_message(f"Shared file {file_id} with {email} as {role} (email invite sent)")
     except Exception as e:
         log_message(f"Error sharing file {file_id} with {email}: {e}")
+
+def apply_fm_sheet_permissions(drive_service, sheets_service, gc, sheet_id, fm_name, fm_email, boss_email, sh_email):
+    """Enforce exact permission rules:
+       - Master Vacancy Indication: Determined strictly by whether 'VACANT' is in FM position/name.
+       - Case 1 (Position Vacant): SH gets Editor (writer) access.
+       - Case 2 (Active FM with Email): FM gets Editor (writer) access, SH gets View (reader) access.
+       - Case 3 (Active FM with Missing Email): FM email is missing. SH temporarily gets Editor (writer) access as fallback.
+    """
+    is_position_vacant = "VACANT" in str(fm_name).upper()
+    has_fm_email = bool(fm_email and '@' in str(fm_email).strip())
+
+    if is_position_vacant:
+        log_message(f"Permission Rule [VACANT POSITION]: {fm_name} -> SH ({sh_email}) gets Editor access.")
+        if sh_email:
+            share_file(drive_service, sheet_id, sh_email, role='writer')
+        if boss_email:
+            share_file(drive_service, sheet_id, boss_email, role='writer')
+        editors_list = [e for e in [sh_email, boss_email] if e]
+    elif has_fm_email:
+        log_message(f"Permission Rule [ACTIVE FM]: {fm_name} -> FM ({fm_email}) gets Editor access, SH ({sh_email}) gets View access.")
+        if fm_email:
+            share_file(drive_service, sheet_id, fm_email, role='writer')
+        if boss_email:
+            share_file(drive_service, sheet_id, boss_email, role='writer')
+        if sh_email and sh_email != fm_email:
+            share_file(drive_service, sheet_id, sh_email, role='reader')
+        editors_list = [e for e in [fm_email, boss_email] if e]
+    else:
+        log_message(f"Permission Rule [ACTIVE FM - MISSING EMAIL]: {fm_name} email is missing! Temporarily granting SH ({sh_email}) Editor access.")
+        if sh_email:
+            share_file(drive_service, sheet_id, sh_email, role='writer')
+        if boss_email:
+            share_file(drive_service, sheet_id, boss_email, role='writer')
+        editors_list = [e for e in [sh_email, boss_email] if e]
+
+    try:
+        sort_and_protect_spreadsheet_tabs(gc, sheets_service, sheet_id, editors_list)
+    except Exception as ex:
+        log_message(f"Note during locking for {fm_name}: {ex}")
 
 def find_total_cash_in_hand_column(ws):
     try:
@@ -1095,11 +1156,9 @@ def execute_missing_markets_provisioning(gc, drive_service, sheets_service, miss
             sheet_id = created_file.get('id')
             sheet_url = created_file.get('webViewLink')
             
-            share_file(drive_service, sheet_id, fm_email, role='writer')
-            share_file(drive_service, sheet_id, boss_email, role='writer')
-            share_file(drive_service, sheet_id, sh_email, role='reader')
+            apply_fm_sheet_permissions(drive_service, sheets_service, gc, sheet_id, fm_clean_name, fm_email, boss_email, sh_email)
             
-            # Apply cell locking
+            # Apply cell locking data validation
             try:
                 ss = gc.open_by_key(sheet_id)
                 ws = ss.get_worksheet(0)
@@ -1108,7 +1167,6 @@ def execute_missing_markets_provisioning(gc, drive_service, sheets_service, miss
                 except Exception:
                     total_col_idx = 13
                 
-                editors_list = [e for e in [boss_email, sh_email] if e]
                 reqs = [{
                     "setDataValidation": {
                         "range": {
@@ -1130,9 +1188,8 @@ def execute_missing_markets_provisioning(gc, drive_service, sheets_service, miss
                     }
                 }]
                 sheets_service.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={"requests": reqs}).execute()
-                sort_and_protect_spreadsheet_tabs(gc, sheets_service, sheet_id, editors_list)
             except Exception as e:
-                log_message(f"Error locking cells for {fm_clean_name}: {e}")
+                log_message(f"Error setting validation for {fm_clean_name}: {e}")
 
             new_registry_entries.append([fm_clean_name, zone, sheet_id, sheet_url, fm_email, boss_name, boss_email, sh_email])
 
@@ -1809,7 +1866,7 @@ def create_local_zonal_excel(zone, zone_fms, registry_map, output_path, month_st
             
     # Set IMPORTRANGE formula for each FM starting row 18
     for f_start, f_end, fm_clean_name in fm_col_ranges:
-        fm_url = registry_map.get(fm_clean_name)
+        fm_url = registry_map.get((zone.strip().upper(), clean_person_name(fm_clean_name, zone))) or registry_map.get(clean_person_name(fm_clean_name, zone))
         if fm_url:
             col_count = f_end - f_start + 1
             fm_last_col_letter = get_column_letter(3 + col_count - 1)
@@ -1943,7 +2000,7 @@ def create_local_transposed_zonal_excel(zone, zone_fms, registry_map, output_pat
             })
 
         num_persons = len(persons)
-        fm_url = registry_map.get(fm_clean, '')
+        fm_url = registry_map.get((zone.strip().upper(), clean_person_name(fm_clean, zone))) or registry_map.get(clean_person_name(fm_clean, zone)) or ''
 
         # FM sheet data columns: C (FM Self) + MPOs + DAs -> total = 1 + num_mpos + num_das
         fm_data_cols = 1 + num_mpos + num_das
@@ -2218,8 +2275,12 @@ def run_zonal_summaries(selected_zones, month_str, num_days, dry_run=False):
     for r in registry_records:
         fm = r.get('FM Name')
         url = r.get('URL')
+        z = r.get('Zone')
         if fm and url:
-            registry_map[clean_person_name(fm)] = url
+            z_clean = str(z).strip().upper() if z else ""
+            fm_clean = clean_person_name(fm, z_clean)
+            registry_map[fm_clean] = url
+            registry_map[(z_clean, fm_clean)] = url
 
     # Group valid FMs by Zone
     zone_groups = {}
@@ -2430,8 +2491,12 @@ def create_fm_fill_status_sheet(gc, drive_service, month_str, num_days, selected
     for r in registry_records:
         fm = r.get('FM Name')
         url = r.get('URL')
+        z = r.get('Zone')
         if fm and url:
-            registry_map[clean_person_name(fm)] = url
+            z_clean = str(z).strip().upper() if z else ""
+            fm_clean = clean_person_name(fm, z_clean)
+            registry_map[fm_clean] = url
+            registry_map[(z_clean, fm_clean)] = url
 
     # Create local Excel file
     wb = openpyxl.Workbook()
@@ -2489,7 +2554,7 @@ def create_fm_fill_status_sheet(gc, drive_service, month_str, num_days, selected
     for fm_name, fm_data in sorted(filtered_fms.items()):
         fm_clean = fm_name.split(',')[0].strip()
         zone = fm_data['zone']
-        fm_url = registry_map.get(fm_clean, '')
+        fm_url = registry_map.get((zone.strip().upper(), clean_person_name(fm_clean, zone))) or registry_map.get(clean_person_name(fm_clean, zone)) or ''
 
         c_name = ws.cell(row=row_num, column=2, value=fm_clean)
         c_name.font = font_body; c_name.alignment = align_right; c_name.border = bd_data
@@ -2640,6 +2705,23 @@ def update_depot_sheets(gc, drive_service, sheets_service, month_str, num_days, 
             depot_ss = gc.open_by_url(depot_url)
             depot_ws = depot_ss.get_worksheet(0)
 
+            # Rename first tab to month_str
+            if depot_ws.title != month_str:
+                try:
+                    depot_ws.update_title(month_str)
+                    log_message(f"  Renamed first tab of {depot_name} depot summary to {month_str}")
+                except Exception as ren_err:
+                    log_message(f"  Error renaming first tab to {month_str}: {ren_err}")
+
+            # Delete obsolete worksheets containing "MARKET" in title
+            for ws in depot_ss.worksheets():
+                if "MARKET" in ws.title.upper():
+                    try:
+                        depot_ss.del_worksheet(ws)
+                        log_message(f"  Deleted obsolete worksheet: {ws.title}")
+                    except Exception as del_err:
+                        log_message(f"  Error deleting worksheet {ws.title}: {del_err}")
+
             # Clear existing values
             depot_ws.clear()
 
@@ -2665,6 +2747,7 @@ def update_depot_sheets(gc, drive_service, sheets_service, month_str, num_days, 
             meta_updates = []
             formula_updates = []
             total_updates = []
+            all_layout_rows = []  # Track ALL layout rows across ALL zones for formatting
 
             for zone in zones_in_depot:
                 zonal_id, zonal_url = None, None
@@ -2679,6 +2762,55 @@ def update_depot_sheets(gc, drive_service, sheets_service, month_str, num_days, 
                 if not zonal_id:
                     log_message(f"  Warning: Zonal summary sheet not found for zone {zone}")
                     continue
+
+                # Fetch header rows to do dynamic column matching
+                try:
+                    res_headers = sheets_service.spreadsheets().values().get(
+                        spreadsheetId=zonal_id,
+                        range=f"{month_str}!A5:CJ14"
+                    ).execute()
+                    header_rows = res_headers.get('values', [])
+                except Exception as ex:
+                    log_message(f"  Error fetching headers for zone {zone}: {ex}")
+                    header_rows = []
+
+                r6 = [str(x).strip().upper() for x in header_rows[1]] if len(header_rows) > 1 else []
+                r7 = [str(x).strip().upper() for x in header_rows[2]] if len(header_rows) > 2 else []
+                r9 = [str(x).strip().upper() for x in header_rows[4]] if len(header_rows) > 4 else []
+                r11 = [str(x).strip().upper() for x in header_rows[6]] if len(header_rows) > 6 else []
+                r12 = [str(x).strip().upper() for x in header_rows[7]] if len(header_rows) > 7 else []
+
+                def find_zonal_col_idx(fm_clean, name, role, mpo_code):
+                    fm_clean = str(fm_clean).strip().upper()
+                    name = str(name).strip().upper()
+                    role = str(role).strip().upper()
+                    mpo_code = str(mpo_code).strip().upper()
+                    
+                    if name == "ZONE SUMMARY":
+                        return 3
+                    if name == "SH SELF":
+                        return 4
+                        
+                    if "TOTAL" in role:
+                        for col_idx in range(len(r6)):
+                            val6 = r6[col_idx]
+                            if val6 == fm_clean and col_idx + 1 < 13:
+                                return col_idx + 1
+                                
+                    for col_idx in range(len(r11)):
+                        val11 = r11[col_idx]
+                        if role == "FM SELF":
+                            val7 = r7[col_idx] if col_idx < len(r7) else ""
+                            if val11 == "FM SELF" and val7 == fm_clean:
+                                return col_idx + 1
+                        elif "VACANT" in name:
+                            val9 = r9[col_idx] if col_idx < len(r9) else ""
+                            if val11 == "VACANT" and val9 == mpo_code:
+                                return col_idx + 1
+                        else:
+                            if val11 == name:
+                                return col_idx + 1
+                    return None
 
                 zone_fms = {k: v for k, v in valid_fms.items() if v['zone'] == zone}
                 def fm_sort_key(item):
@@ -2771,9 +2903,14 @@ def update_depot_sheets(gc, drive_service, sheets_service, month_str, num_days, 
 
                     # Build bulk lists
                     meta_updates.append(meta)
+                    all_layout_rows.append(row_data)  # Track for formatting
 
-                    col_letter = get_column_letter(zonal_col_idx)
-                    importrange_formula = f'=TRANSPOSE(IMPORTRANGE("{zonal_url}", "{month_str}!{col_letter}18:{col_letter}{18 + num_days - 1}"))'
+                    dyn_col = find_zonal_col_idx(meta[1], meta[5], meta[6], meta[3])
+                    if dyn_col:
+                        col_letter = get_column_letter(dyn_col)
+                        importrange_formula = f'=TRANSPOSE(IMPORTRANGE("{zonal_url}", "{month_str}!{col_letter}18:{col_letter}{18 + num_days - 1}"))' 
+                    else:
+                        importrange_formula = '=""'
                     formula_updates.append([importrange_formula])
 
                     first_date_col = 'J'
@@ -2808,10 +2945,42 @@ def update_depot_sheets(gc, drive_service, sheets_service, month_str, num_days, 
 
             depot_ws.update(range_name=f'J{depot_total_row_idx}', values=[depot_total_formulas], value_input_option='USER_ENTERED')
 
-            # Apply formatting, gridlines, zoom, freeze pane, and hide metadata columns
+            # ═══════════════════════════════════════════════════════════
+            # Apply formatting — EXACT same color scheme as Zonal Summary
+            # Zonal columns → Depot rows (transposed), same black/green vibe
+            # ═══════════════════════════════════════════════════════════
+            # Color Palette (hex → RGB fractions, matching zonal summary exactly)
+            # Backgrounds:
+            C_VOID        = {"red": 0.024, "green": 0.031, "blue": 0.086}   # 060816
+            C_DEEP_NAVY   = {"red": 0.051, "green": 0.078, "blue": 0.145}   # 0D1425
+            C_MIDNIGHT    = {"red": 0.118, "green": 0.161, "blue": 0.231}   # 1E293B
+            C_DARK_SURF   = {"red": 0.059, "green": 0.090, "blue": 0.165}   # 0F172A
+            C_TOTAL_HEAD  = {"red": 0.024, "green": 0.373, "blue": 0.275}   # 065F46
+            C_TOTAL_DATA  = {"red": 0.925, "green": 0.992, "blue": 0.961}   # ECFDF5
+            C_ZEBRA_A     = {"red": 1.0,   "green": 1.0,   "blue": 1.0}     # FFFFFF
+            C_ZEBRA_B     = {"red": 0.973, "green": 0.980, "blue": 0.988}   # F8FAFC
+            # Text:
+            T_NEON        = {"red": 0.0,   "green": 0.949, "blue": 0.996}   # 00F2FE
+            T_WHITE       = {"red": 1.0,   "green": 1.0,   "blue": 1.0}     # FFFFFF
+            T_SLATE       = {"red": 0.796, "green": 0.835, "blue": 0.882}   # CBD5E1
+            T_INK         = {"red": 0.059, "green": 0.090, "blue": 0.165}   # 0F172A
+            T_MINT        = {"red": 0.655, "green": 0.953, "blue": 0.816}   # A7F3D0
+            T_TOTAL_DARK  = {"red": 0.024, "green": 0.306, "blue": 0.231}   # 064E3B
+            # Borders:
+            B_SLATE       = {"red": 0.200, "green": 0.255, "blue": 0.333}   # 334155
+            B_LIGHT       = {"red": 0.886, "green": 0.910, "blue": 0.941}   # E2E8F0
+            B_TOTAL       = {"red": 0.431, "green": 0.906, "blue": 0.718}   # 6EE7B7
+            B_NEON        = {"red": 0.055, "green": 0.455, "blue": 0.565}   # 0E7490
+
+            total_col_count = 10 + num_days  # total columns (A through DEPOT TOTAL)
+            border_slate = {"style": "SOLID", "color": B_SLATE}
+            border_light = {"style": "SOLID", "color": B_LIGHT}
+            border_total = {"style": "SOLID", "color": B_TOTAL}
+
             try:
                 body = {
                     "requests": [
+                        # Freeze pane: 7 rows frozen, 9 columns frozen (same as before)
                         {
                             "updateSheetProperties": {
                                 "properties": {
@@ -2824,6 +2993,7 @@ def update_depot_sheets(gc, drive_service, sheets_service, month_str, num_days, 
                                 "fields": "gridProperties.frozenRowCount,gridProperties.frozenColumnCount"
                             }
                         },
+                        # Hide metadata columns A-E (0-indexed: 0-4) — matches zonal hidden rows
                         {
                             "updateDimensionProperties": {
                                 "range": {
@@ -2838,6 +3008,7 @@ def update_depot_sheets(gc, drive_service, sheets_service, month_str, num_days, 
                                 "fields": "hiddenByUser"
                             }
                         },
+                        # Hide columns H-I (VACANT, DA NAME) — matches zonal hidden metadata rows
                         {
                             "updateDimensionProperties": {
                                 "range": {
@@ -2851,9 +3022,224 @@ def update_depot_sheets(gc, drive_service, sheets_service, month_str, num_days, 
                                 },
                                 "fields": "hiddenByUser"
                             }
+                        },
+                        # Hide rows 2-7 (0-indexed: 1-6) — empty header gap area
+                        {
+                            "updateDimensionProperties": {
+                                "range": {
+                                    "sheetId": depot_ws.id,
+                                    "dimension": "ROWS",
+                                    "startIndex": 1,
+                                    "endIndex": 7
+                                },
+                                "properties": {
+                                    "hiddenByUser": True
+                                },
+                                "fields": "hiddenByUser"
+                            }
                         }
                     ]
                 }
+
+                format_reqs = []
+
+                # ── 1. HEADER ROW (Row 1) — C_MIDNIGHT bg, white bold text ──
+                # Same as zonal Row 5 MPO/DA header style
+                format_reqs.append({
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": depot_ws.id,
+                            "startRowIndex": 0,
+                            "endRowIndex": 1,
+                            "startColumnIndex": 0,
+                            "endColumnIndex": total_col_count
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColor": C_MIDNIGHT,
+                                "textFormat": {
+                                    "foregroundColor": T_WHITE,
+                                    "bold": True,
+                                    "fontSize": 10
+                                },
+                                "horizontalAlignment": "CENTER",
+                                "verticalAlignment": "MIDDLE",
+                                "borders": {
+                                    "top": border_slate,
+                                    "bottom": border_slate,
+                                    "left": border_slate,
+                                    "right": border_slate
+                                }
+                            }
+                        },
+                        "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment,borders)"
+                    }
+                })
+
+                # ── 2. DATA ROWS — Role-based coloring (transposed zonal column colors) ──
+                # In zonal sheet:
+                #   Zone Summary col, SH col, FM Total cols → C_TOTAL_HEAD header, C_TOTAL_DATA data (green)
+                #   FM SELF col → C_MIDNIGHT header, C_DEEP_NAVY metadata (dark)
+                #   MPO cols → C_DARK_SURF name, C_DEEP_NAVY metadata (dark)
+                #   DA cols → C_DARK_SURF name, C_DEEP_NAVY metadata (dark)
+                #
+                # In depot (transposed):
+                #   Zone Summary row, SH row, FM Total rows → green styling
+                #   FM SELF row → dark styling
+                #   MPO rows → dark styling with zebra in data area
+                #   DA rows → dark styling with zebra in data area
+                #   Vacant rows → hidden
+
+                vacant_row_indices = []  # Collect rows to hide (0-indexed)
+                standard_row_idx = 0  # Counter for zebra striping of non-total rows
+
+                for r_offset, row_data in enumerate(all_layout_rows):
+                    r_num = 8 + r_offset  # 1-indexed row number
+                    role = row_data['meta'][6]  # TOTAL, SH, FM SELF, MPO, DA
+                    is_vacant = str(row_data.get('is_vacant', 'N')).upper() == 'Y'
+                    is_zone_total = row_data.get('is_zone_total', False)
+                    is_total_or_sh = (role in ['TOTAL', 'SH'])
+
+                    # Track vacant rows for hiding
+                    if is_vacant:
+                        vacant_row_indices.append(r_num - 1)  # 0-indexed
+
+                    if is_zone_total:
+                        # ZONE SUMMARY row — C_TOTAL_HEAD bg, T_MINT text (most prominent green)
+                        bg_color = C_TOTAL_HEAD
+                        text_color = T_MINT
+                        is_bold = True
+                        border_style = border_total
+                    elif is_total_or_sh:
+                        # SH SELF or FM TOTAL rows — C_DARK_SURF bg, T_WHITE text (dark prominent)
+                        bg_color = C_DARK_SURF
+                        text_color = T_WHITE
+                        is_bold = True
+                        border_style = border_slate
+                    elif role == 'FM SELF':
+                        # FM SELF rows — C_TOTAL_DATA bg, T_TOTAL_DARK text (light green)
+                        bg_color = C_TOTAL_DATA
+                        text_color = T_TOTAL_DARK
+                        is_bold = True
+                        border_style = border_total
+                    else:
+                        # MPO and DA rows — zebra striping
+                        if standard_row_idx % 2 == 0:
+                            bg_color = C_ZEBRA_A  # White
+                        else:
+                            bg_color = C_ZEBRA_B  # Light slate
+                        text_color = T_INK
+                        is_bold = False
+                        border_style = border_light
+                        standard_row_idx += 1
+
+                    format_reqs.append({
+                        "repeatCell": {
+                            "range": {
+                                "sheetId": depot_ws.id,
+                                "startRowIndex": r_num - 1,
+                                "endRowIndex": r_num,
+                                "startColumnIndex": 0,
+                                "endColumnIndex": total_col_count
+                            },
+                            "cell": {
+                                "userEnteredFormat": {
+                                    "backgroundColor": bg_color,
+                                    "textFormat": {
+                                        "foregroundColor": text_color,
+                                        "bold": is_bold,
+                                        "fontSize": 10
+                                    },
+                                    "horizontalAlignment": "CENTER",
+                                    "verticalAlignment": "MIDDLE",
+                                    "borders": {
+                                        "top": border_style,
+                                        "bottom": border_style,
+                                        "left": border_style,
+                                        "right": border_style
+                                    }
+                                }
+                            },
+                            "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment,borders)"
+                        }
+                    })
+
+                    # For ZONE SUMMARY and FM TOTAL rows: override the NAME column (F) styling
+                    # to match zonal's merged green header feel
+                    if is_zone_total or (is_total_or_sh and role == 'TOTAL'):
+                        format_reqs.append({
+                            "repeatCell": {
+                                "range": {
+                                    "sheetId": depot_ws.id,
+                                    "startRowIndex": r_num - 1,
+                                    "endRowIndex": r_num,
+                                    "startColumnIndex": 5,  # Column F (NAME)
+                                    "endColumnIndex": 7      # Column G (ROLE)
+                                },
+                                "cell": {
+                                    "userEnteredFormat": {
+                                        "backgroundColor": C_TOTAL_HEAD if is_zone_total else C_TOTAL_DATA,
+                                        "textFormat": {
+                                            "foregroundColor": T_MINT if is_zone_total else T_TOTAL_DARK,
+                                            "bold": True,
+                                            "fontSize": 11
+                                        }
+                                    }
+                                },
+                                "fields": "userEnteredFormat(backgroundColor,textFormat)"
+                            }
+                        })
+
+                # ── 3. DEPOT TOTAL ROW — C_TOTAL_HEAD bg, T_MINT text (same as Zone Summary) ──
+                format_reqs.append({
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": depot_ws.id,
+                            "startRowIndex": depot_total_row_idx - 1,
+                            "endRowIndex": depot_total_row_idx,
+                            "startColumnIndex": 0,
+                            "endColumnIndex": total_col_count
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColor": C_TOTAL_HEAD,
+                                "textFormat": {
+                                    "foregroundColor": T_MINT,
+                                    "bold": True,
+                                    "fontSize": 11
+                                },
+                                "horizontalAlignment": "CENTER",
+                                "verticalAlignment": "MIDDLE",
+                                "borders": {
+                                    "top": border_total,
+                                    "bottom": border_total,
+                                    "left": border_total,
+                                    "right": border_total
+                                }
+                            }
+                        },
+                        "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment,borders)"
+                    }
+                })
+
+                # ── 4. HIDE VACANT ROWS — matches zonal hidden vacant columns ──
+                for vr_idx in vacant_row_indices:
+                    format_reqs.append({
+                        "updateDimensionProperties": {
+                            "range": {
+                                "sheetId": depot_ws.id,
+                                "dimension": "ROWS",
+                                "startIndex": vr_idx,
+                                "endIndex": vr_idx + 1
+                            },
+                            "properties": {
+                                "hiddenByUser": True
+                            },
+                            "fields": "hiddenByUser"
+                        }
+                    })
+
+                body["requests"].extend(format_reqs)
                 sheets_service.spreadsheets().batchUpdate(spreadsheetId=depot_ss.id, body=body).execute()
             except Exception as format_err:
                 log_message(f"  Note during formatting depot sheet: {format_err}")
@@ -3265,13 +3651,8 @@ def run_provisioning(selected_zones, month_str, num_days, dry_run=False, existin
             web_link = uploaded_file['webViewLink']
             log_message(f"Created new Google Sheet ID: {sheet_id}")
 
-        # 4. Share and Protect
-        if fm_email:
-            share_file(drive_service, sheet_id, fm_email, role='writer')
-        if boss_email:
-            share_file(drive_service, sheet_id, boss_email, role='writer')
-        if sh_email and sh_email != fm_email:
-            share_file(drive_service, sheet_id, sh_email, role='reader')
+        # 4. Share and Protect with correct FM vs SH permissions
+        apply_fm_sheet_permissions(drive_service, sheets_service, gc, sheet_id, fm_clean_name, fm_email, boss_email, sh_email)
 
         # Add data validation rules (positive numbers only in columns C to total_col-1)
         _das = []
@@ -3281,13 +3662,11 @@ def run_provisioning(selected_zones, month_str, num_days, dry_run=False, existin
                 if _d not in _das:
                     _das.append(_d)
         _total_col = 4 + len(fm_data['markets']) + len(_das)
-        last_col_letter = get_column_letter(_total_col - 1)
         
         try:
             # Add strict data validation
             ss_api = gc.open_by_key(sheet_id)
             ws_api = ss_api.worksheet(month_str)
-            editors_list = [e for e in [boss_email, sh_email] if e]
             validation_requests = [{
                 'setDataValidation': {
                     'range': {
@@ -3309,7 +3688,6 @@ def run_provisioning(selected_zones, month_str, num_days, dry_run=False, existin
                 }
             }]
             sheets_service.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={'requests': validation_requests}).execute()
-            sort_and_protect_spreadsheet_tabs(gc, sheets_service, sheet_id, editors_list)
         except Exception as ex:
             log_message(f"Non-fatal data validation setup error: {ex}")
 
@@ -4470,20 +4848,8 @@ class CashInHandApp(tk.Tk):
                 if files:
                     sheet_id = files[0]['id']
                     self.gui_log(f"Sharing & locking existing sheet for {fm_name} (ID: {sheet_id})...\n")
-                    if fm_email:
-                        share_file(drive_service, sheet_id, fm_email, role='writer')
-                    if boss_email:
-                        share_file(drive_service, sheet_id, boss_email, role='writer')
-                    if sh_email and sh_email != fm_email:
-                        share_file(drive_service, sheet_id, sh_email, role='reader')
-                        
-                    # Apply cell locking and tab sorting
-                    try:
-                        editors_list = [e for e in [boss_email, sh_email] if e]
-                        sheets_service = build('sheets', 'v4', credentials=creds)
-                        sort_and_protect_spreadsheet_tabs(gc, sheets_service, sheet_id, editors_list)
-                    except Exception as l_ex:
-                        self.gui_log(f"  Note during locking for {fm_name}: {l_ex}\n")
+                    sheets_service = build('sheets', 'v4', credentials=creds)
+                    apply_fm_sheet_permissions(drive_service, sheets_service, gc, sheet_id, fm_name, fm_email, boss_email, sh_email)
                         
                     shared_count += 1
                 else:
