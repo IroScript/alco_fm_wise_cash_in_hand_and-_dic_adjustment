@@ -41,20 +41,73 @@ def log_message(msg):
     if log_callback:
         log_callback(msg + "\n")
 
-# Online / Offline Verification Engine
-def check_online_status(timeout=3):
-    log_message("Checking internet connection (Online/Offline status)...")
+# Online / Offline & Network Auto-Pause Resilience Engine
+def is_online(timeout=3):
     try:
-        # Try connecting to Google DNS or public server
-        socket.setdefaulttimeout(timeout)
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(timeout)
         s.connect(("8.8.8.8", 53))
         s.close()
-        socket.setdefaulttimeout(None) # Reset timeout so Google API requests do not time out!
+        return True
+    except Exception:
+        return False
+
+def wait_for_internet_connection(poll_interval=3):
+    """If internet disconnects, pause execution and wait until reconnected without crashing."""
+    if is_online():
+        return True
+    log_message("⚠️ [NETWORK PAUSE] Internet connection lost! System PAUSED. Waiting for connection to restore...")
+    while not is_online():
+        time.sleep(poll_interval)
+    log_message("🟢 [NETWORK RESUMED] Internet connection restored! Resuming execution seamlessly...")
+    time.sleep(1) # cool down after reconnect
+    return True
+
+def api_call_with_retry(api_func, max_retries=6, initial_delay=2, description="API Operation"):
+    """Execute any Google API or network function with automatic retry on disconnects and rate limits."""
+    delay = initial_delay
+    for attempt in range(1, max_retries + 1):
+        try:
+            wait_for_internet_connection()
+            return api_func()
+        except Exception as e:
+            err_str = str(e)
+            is_rate_limit = "429" in err_str or "Quota exceeded" in err_str or "Rate limit" in err_str or "503" in err_str
+            is_net_error = (
+                "ConnectionResetError" in err_str or
+                "RemoteDisconnected" in err_str or
+                "TransportError" in err_str or
+                "timeout" in err_str.lower() or
+                "socket" in err_str.lower() or
+                "connection" in err_str.lower() or
+                "SSL" in err_str or
+                "Broken pipe" in err_str
+            )
+            
+            if attempt == max_retries:
+                log_message(f"❌ [FATAL] {description} failed after {max_retries} attempts: {e}")
+                raise e
+                
+            if is_rate_limit:
+                log_message(f"⚠️ [Rate Limit] {description} hit quota. Backing off {delay*2}s (Attempt {attempt}/{max_retries})...")
+                time.sleep(delay * 2)
+                delay *= 2
+            elif is_net_error or not is_online():
+                log_message(f"⚠️ [Network Drop] {description} hit network issue ({e}). Pausing until reconnected (Attempt {attempt}/{max_retries})...")
+                wait_for_internet_connection()
+                time.sleep(delay)
+                delay = min(delay * 2, 30)
+            else:
+                log_message(f"⚠️ [API Retry] {description} temporary issue ({e}). Retrying in {delay}s (Attempt {attempt}/{max_retries})...")
+                time.sleep(delay)
+                delay = min(delay * 2, 30)
+
+def check_online_status(timeout=3):
+    log_message("Checking internet connection (Online/Offline status)...")
+    if is_online(timeout=timeout):
         log_message("Internet connection verified: ONLINE 🟢")
         return True
-    except Exception as e:
-        socket.setdefaulttimeout(None)
+    else:
         log_message("Error: No internet connection detected: OFFLINE 🔴")
         try:
             messagebox.showerror("Offline Alert", "System is Offline!\nPlease check your internet connection and try again.")
@@ -131,16 +184,87 @@ def clean_person_name(name, zone=None):
     return name.strip()
 
 # Date / Month Parsing & Calculations
-def parse_month_str(m_str):
-    try:
-        parts = m_str.split("'")
+MONTH_MAP = {
+    'JAN': 1, 'JANUARY': 1,
+    'FEB': 2, 'FEBRUARY': 2,
+    'MAR': 3, 'MARCH': 3,
+    'APR': 4, 'APRIL': 4,
+    'MAY': 5,
+    'JUN': 6, 'JUNE': 6,
+    'JUL': 7, 'JULY': 7,
+    'AUG': 8, 'AUGUST': 8, 'AU': 8,
+    'SEP': 9, 'SEPT': 9, 'SEPTEMBER': 9,
+    'OCT': 10, 'OCTOBER': 10,
+    'NOV': 11, 'NOVEMBER': 11,
+    'DEC': 12, 'DECEMBER': 12
+}
+
+def parse_month_str(m_str, default_year=2026):
+    if not m_str or not isinstance(m_str, str):
+        return None
+    
+    raw = m_str.strip().upper()
+    if not raw:
+        return None
+    
+    # Exclude system sheet names that might contain words or numbers
+    if raw in ['SHEET1', 'SHEET2', 'SHEET3', 'MASTER', 'SUMMARY', 'TEMPLATE', 'DATA', 'EMAIL_2026', 'MPO', 'FM', 'REGISTRY']:
+        return None
+    if raw.startswith('EMAIL_') or raw.startswith('MASTER_') or raw.startswith('DATA_'):
+        return None
+
+    # First check standard format like AUG'26 or AUG'2026
+    if "'" in raw:
+        parts = [p.strip() for p in raw.split("'") if p.strip()]
         if len(parts) == 2:
-            m_abbr, y_short = parts[0].upper(), parts[1]
-            m_num = datetime.datetime.strptime(m_abbr, "%b").month
-            year = 2000 + int(y_short)
-            return (year, m_num)
-    except Exception:
-        pass
+            m_part, y_part = parts[0], parts[1]
+            if m_part in MONTH_MAP:
+                try:
+                    y_val = int(y_part)
+                    year = y_val if y_val >= 2000 else 2000 + y_val
+                    return (year, MONTH_MAP[m_part])
+                except Exception:
+                    pass
+
+    # Normalize separators (replace _ - . ' / with space)
+    s = re.sub(r"[-_.'/\\]+", " ", raw).strip()
+
+    month_regex = r'\b(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|SEPT|OCTOBER|NOVEMBER|DECEMBER|JAN|FEB|MAR|APR|JUN|JUL|AUG|SEP|OCT|NOV|DEC|AU)\b'
+    
+    m_match = re.search(month_regex, s)
+    if not m_match:
+        # Check attached case like AUG2026 or AUG26
+        for m_name in sorted(MONTH_MAP.keys(), key=len, reverse=True):
+            if s.startswith(m_name):
+                rest = s[len(m_name):].strip()
+                if rest.isdigit():
+                    y_val = int(rest)
+                    year = y_val if y_val >= 2000 else 2000 + y_val
+                    return (year, MONTH_MAP[m_name])
+        return None
+
+    month_token = m_match.group(1)
+    m_num = MONTH_MAP.get(month_token)
+    if not m_num:
+        return None
+
+    # Search for 4-digit year like 2024, 2025, 2026, 2027
+    y4_match = re.search(r'\b(20[2-3][0-9])\b', s)
+    if y4_match:
+        year = int(y4_match.group(1))
+        return (year, m_num)
+    
+    # Search for 2-digit year like 24, 25, 26, 27
+    y2_match = re.search(r'\b(2[4-9]|3[0-5])\b', s)
+    if y2_match:
+        year = 2000 + int(y2_match.group(1))
+        return (year, m_num)
+
+    # If only month name is present with no numbers, e.g. 'AUGUST', 'AUG', 'AU', 'JULY'
+    remaining = re.sub(month_regex, '', s).strip()
+    if remaining == '' or remaining in ["TAB", "SHEET"]:
+        return (default_year, m_num)
+        
     return None
 
 def format_month_str(year, month):
@@ -668,139 +792,149 @@ def sort_and_protect_spreadsheet_tabs(gc, sheets_service, sheet_id, editors_list
             s_id = s_meta['properties']['sheetId']
             title = s_meta['properties']['title']
             
+            parsed = parse_month_str(title)
+            if not parsed:
+                # STRICT SAFETY: If tab is unknown / manual, PRESERVE its existing protection and formatting!
+                continue
+
             for pr in s_meta.get('protectedRanges', []):
                 requests.append({"deleteProtectedRange": {"protectedRangeId": pr['protectedRangeId']}})
                 
-            parsed = parse_month_str(title)
-            if parsed:
-                yr, mo = parsed
-                is_old_month = (yr < today_year) or (yr == today_year and mo < today_month)
-                if is_old_month:
-                    # TOTAL READ ONLY -> ZERO UNPROTECTED RANGES
-                    requests.append({
-                        "addProtectedRange": {
-                            "protectedRange": {
-                                "range": {"sheetId": s_id},
-                                "description": f"ARCHIVED TOTAL READ ONLY ({title})",
-                                "warningOnly": False,
-                                "unprotectedRanges": [],
-                                "editors": {"users": []}
-                            }
+            yr, mo = parsed
+            is_old_month = (yr < today_year) or (yr == today_year and mo < today_month)
+            if is_old_month:
+                # TOTAL READ ONLY -> ZERO UNPROTECTED RANGES
+                requests.append({
+                    "addProtectedRange": {
+                        "protectedRange": {
+                            "range": {"sheetId": s_id},
+                            "description": f"ARCHIVED TOTAL READ ONLY ({title})",
+                            "warningOnly": False,
+                            "unprotectedRanges": [],
+                            "editors": {"users": []}
                         }
-                    })
-                    try:
-                        ws_obj = ss.worksheet(title)
-                        t_col_idx = find_total_cash_in_hand_column(ws_obj)
-                    except Exception:
-                        t_col_idx = 13
-                        
-                    _, num_days = calendar.monthrange(yr, mo)
-                    editors = [e for e in (editors_list or []) if e]
-
-                    # Step 1: Unfreeze columns first
-                    requests.append({
-                        "updateSheetProperties": {
-                            "properties": {
-                                "sheetId": s_id,
-                                "gridProperties": {
-                                    "frozenColumnCount": 0
-                                }
-                            },
-                            "fields": "gridProperties.frozenColumnCount"
-                        }
-                    })
+                    }
+                })
+                try:
+                    ws_obj = ss.worksheet(title)
+                    t_col_idx = find_total_cash_in_hand_column(ws_obj)
+                except Exception:
+                    t_col_idx = 13
                     
-                    # Step 2: Unmerge B2:M3, clear B2, set C2="CASH IN HAND" (#00F2FE, size 26), merge C2:M3
-                    requests.append({
-                        "unmergeCells": {
-                            "range": {
-                                "sheetId": s_id,
-                                "startRowIndex": 1,
-                                "endRowIndex": 3,
-                                "startColumnIndex": 1,
-                                "endColumnIndex": t_col_idx
+                # Step 1: Unfreeze columns first
+                requests.append({
+                    "updateSheetProperties": {
+                        "properties": {
+                            "sheetId": s_id,
+                            "gridProperties": {
+                                "frozenColumnCount": 0
                             }
+                        },
+                        "fields": "gridProperties.frozenColumnCount"
+                    }
+                })
+                
+                # Step 2: Unmerge B2:M3, clear B2, set C2="CASH IN HAND" (#00F2FE, size 26), merge C2:M3
+                requests.append({
+                    "unmergeCells": {
+                        "range": {
+                            "sheetId": s_id,
+                            "startRowIndex": 1,
+                            "endRowIndex": 3,
+                            "startColumnIndex": 1,
+                            "endColumnIndex": t_col_idx
                         }
-                    })
-                    requests.append({
-                        "updateCells": {
-                            "range": {
-                                "sheetId": s_id,
-                                "startRowIndex": 1,
-                                "endRowIndex": 2,
-                                "startColumnIndex": 1,
-                                "endColumnIndex": 3
-                            },
-                            "rows": [
-                                {
-                                    "values": [
-                                        {"userEnteredValue": {"stringValue": ""}},
-                                        {
-                                            "userEnteredValue": {"stringValue": "CASH IN HAND"},
-                                            "userEnteredFormat": {
-                                                "horizontalAlignment": "CENTER",
-                                                "verticalAlignment": "MIDDLE",
-                                                "textFormat": {
-                                                    "bold": True,
-                                                    "fontSize": 26,
-                                                    "foregroundColor": {
-                                                        "red": 0.0,
-                                                        "green": 0.9490196,
-                                                        "blue": 0.9960784
-                                                    }
+                    }
+                })
+                requests.append({
+                    "updateCells": {
+                        "range": {
+                            "sheetId": s_id,
+                            "startRowIndex": 1,
+                            "endRowIndex": 2,
+                            "startColumnIndex": 1,
+                            "endColumnIndex": 3
+                        },
+                        "rows": [
+                            {
+                                "values": [
+                                    {"userEnteredValue": {"stringValue": ""}},
+                                    {
+                                        "userEnteredValue": {"stringValue": "CASH IN HAND"},
+                                        "userEnteredFormat": {
+                                            "horizontalAlignment": "CENTER",
+                                            "verticalAlignment": "MIDDLE",
+                                            "textFormat": {
+                                                "bold": True,
+                                                "fontSize": 26,
+                                                "foregroundColor": {
+                                                    "red": 0.0,
+                                                    "green": 0.9490196,
+                                                    "blue": 0.9960784
                                                 }
                                             }
                                         }
-                                    ]
-                                }
-                            ],
-                            "fields": "userEnteredValue,userEnteredFormat.horizontalAlignment,userEnteredFormat.verticalAlignment,userEnteredFormat.textFormat"
-                        }
-                    })
-                    requests.append({
-                        "mergeCells": {
-                            "range": {
-                                "sheetId": s_id,
-                                "startRowIndex": 1,
-                                "endRowIndex": 3,
-                                "startColumnIndex": 2,
-                                "endColumnIndex": t_col_idx
-                            },
-                            "mergeType": "MERGE_ALL"
-                        }
-                    })
-
-                    # Step 3: Set freeze panes for DATE column only (frozenColumnCount = 2)
-                    requests.append({
-                        "updateSheetProperties": {
-                            "properties": {
-                                "sheetId": s_id,
-                                "gridProperties": {
-                                    "frozenRowCount": 17,
-                                    "frozenColumnCount": 2
-                                }
-                            },
-                            "fields": "gridProperties.frozenRowCount,gridProperties.frozenColumnCount"
-                        }
-                    })
-
-                    requests.append({
-                        "addProtectedRange": {
-                            "protectedRange": {
-                                "range": {"sheetId": s_id},
-                                "description": f"Locked headers, dates and formula columns ({title})",
-                                "warningOnly": False,
-                                "unprotectedRanges": [{
-                                    "sheetId": s_id,
-                                    "startRowIndex": 17,
-                                    "endRowIndex": 17 + num_days,
-                                    "startColumnIndex": 2,
-                                    "endColumnIndex": t_col_idx - 1
-                                }],
-                                "editors": {"users": editors}
+                                    }
+                                ]
                             }
+                        ],
+                        "fields": "userEnteredValue,userEnteredFormat.horizontalAlignment,userEnteredFormat.verticalAlignment,userEnteredFormat.textFormat"
+                    }
+                })
+                requests.append({
+                    "mergeCells": {
+                        "range": {
+                            "sheetId": s_id,
+                            "startRowIndex": 1,
+                            "endRowIndex": 3,
+                            "startColumnIndex": 2,
+                            "endColumnIndex": t_col_idx
+                        },
+                        "mergeType": "MERGE_ALL"
+                    }
+                })
+
+                # Step 3: Set freeze panes for DATE column only (frozenColumnCount = 2)
+                requests.append({
+                    "updateSheetProperties": {
+                        "properties": {
+                            "sheetId": s_id,
+                            "gridProperties": {
+                                "frozenRowCount": 17,
+                                "frozenColumnCount": 2
+                            }
+                        },
+                        "fields": "gridProperties.frozenRowCount,gridProperties.frozenColumnCount"
+                    }
+                })
+            else:
+                # Active current or future month (e.g. SEP'26): Lock headers and formulas, keep input cells editable
+                try:
+                    ws_obj = ss.worksheet(title)
+                    t_col_idx = find_total_cash_in_hand_column(ws_obj)
+                except Exception:
+                    t_col_idx = 13
+                    
+                _, num_days = calendar.monthrange(yr, mo)
+                editors = [e for e in (editors_list or []) if e]
+
+                requests.append({
+                    "addProtectedRange": {
+                        "protectedRange": {
+                            "range": {"sheetId": s_id},
+                            "description": f"Locked headers, dates and formula columns ({title})",
+                            "warningOnly": False,
+                            "unprotectedRanges": [{
+                                "sheetId": s_id,
+                                "startRowIndex": 17,
+                                "endRowIndex": 17 + num_days,
+                                "startColumnIndex": 2,
+                                "endColumnIndex": t_col_idx - 1
+                            }],
+                            "editors": {"users": editors}
                         }
-                    })
+                    }
+                })
 
         if requests:
             sheets_service.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={"requests": requests}).execute()
@@ -1597,20 +1731,16 @@ def create_local_zonal_excel(zone, zone_fms, registry_map, output_path, month_st
         ws.row_dimensions[r].height = 20
         
     ws.freeze_panes = 'E18'
-    ws.sheet_properties.tabColor = '00F2FE' if zone == 'CTG.A' else 'A855F7'
-    
     ws.column_dimensions['A'].width = 3
     ws.column_dimensions['B'].width = 14
     ws.column_dimensions['C'].width = 18
-    ws.column_dimensions['D'].width = 13
-    
     num_fms = len(zone_fms)
     zone_summary_col = 3
     sh_self_col = 4
     summary_start_col = 5
     summary_end_col = 4 + num_fms
     
-    # Summary header
+    # FM Wise Total Cash In Hand Header Merged over all FM columns (E..last)
     ws.merge_cells(start_row=5, start_column=summary_start_col, end_row=5, end_column=summary_end_col)
     c_sum_hdr = ws.cell(row=5, column=summary_start_col, value=f"FM WISE TOTAL CASH IN HAND, {zone}")
     c_sum_hdr.font = font_total_h
@@ -1710,34 +1840,23 @@ def create_local_zonal_excel(zone, zone_fms, registry_map, output_path, month_st
             c_idx = mpo_start + m_idx
             ws.cell(row=6, column=c_idx, value=zone).font = font_sub
             ws.cell(row=7, column=c_idx, value=fm_clean_name).font = font_sub
-            ws.cell(row=8, column=c_idx, value=m['market_name']).font = font_sub
+            ws.cell(row=8, column=c_idx, value=m['market_name']).font = font_name
             ws.cell(row=9, column=c_idx, value=m['mpo_code']).font = font_sub
             ws.cell(row=10, column=c_idx, value=m['fm_code']).font = font_sub
+            ws.cell(row=11, column=c_idx, value=m['mpo_name'] or 'VACANT').font = font_name
             
-            for r in range(6, 11):
+            for r in range(6, 12):
                 ws.cell(row=r, column=c_idx).fill = fill_navy
                 ws.cell(row=r, column=c_idx).border = bd_hdr
                 ws.cell(row=r, column=c_idx).alignment = align_center
-                
-            ws.cell(row=11, column=c_idx, value=m['mpo_name']).font = font_name
-            ws.cell(row=11, column=c_idx).fill = fill_dark
-            ws.cell(row=11, column=c_idx).border = bd_hdr
-            ws.cell(row=11, column=c_idx).alignment = align_center
-            
-            ws.cell(row=12, column=c_idx, value=m['desig']).font = font_sub
-            ws.cell(row=13, column=c_idx, value=m['is_vacant']).font = font_sub
-            ws.cell(row=14, column=c_idx, value=m['da_name']).font = font_sub
             for r in range(12, 15):
                 ws.cell(row=r, column=c_idx).fill = fill_navy
                 ws.cell(row=r, column=c_idx).border = bd_hdr
-                ws.cell(row=r, column=c_idx).alignment = align_center
                 
-            name_len = len(m['mpo_name'] or '')
-            ws.column_dimensions[get_column_letter(c_idx)].width = max(name_len * 1.1, 13)
+            name_len = len(m['mpo_name'] or 'VACANT')
+            mkt_len = len(m['market_name'] or '')
+            ws.column_dimensions[get_column_letter(c_idx)].width = max(name_len * 1.1, mkt_len * 1.1, 13)
             
-            if m['is_vacant'] == 'Y':
-                ws.column_dimensions[get_column_letter(c_idx)].hidden = True
-                
         # DAs Columns
         if num_das > 0:
             da_start = curr_col + 1 + num_mpos
@@ -1801,11 +1920,14 @@ def create_local_zonal_excel(zone, zone_fms, registry_map, output_path, month_st
             cell.border = Border(left=left, right=right, top=top, bottom=bottom)
             
     # Rows 15-17 summary formulas
+    first_sum_let = get_column_letter(summary_start_col)
+    last_sum_let = get_column_letter(summary_end_col)
+
     for r in range(15, 18):
         for c in range(2, last_col_idx + 1):
             ws.cell(row=r, column=c).border = bd_data
             
-        ws.cell(row=r, column=zone_summary_col, value=f"=SUM({get_column_letter(sh_self_col)}{r}:{get_column_letter(summary_end_col)}{r})").font = font_total_d
+        ws.cell(row=r, column=zone_summary_col, value=f"=SUM(D{r}, {first_sum_let}{r}:{last_sum_let}{r})").font = font_total_d
         ws.cell(row=r, column=zone_summary_col).alignment = align_center
         ws.cell(row=r, column=zone_summary_col).fill = fill_tot_data
         ws.cell(row=r, column=zone_summary_col).border = bd_total
@@ -1814,7 +1936,7 @@ def create_local_zonal_excel(zone, zone_fms, registry_map, output_path, month_st
         ws.cell(row=r, column=sh_self_col).alignment = align_center
         ws.cell(row=r, column=sh_self_col).fill = fill_tot_data
         ws.cell(row=r, column=sh_self_col).border = bd_total
-        
+
         for f_idx, (f_start, f_end, _) in enumerate(fm_col_ranges):
             col_idx = summary_start_col + f_idx
             ws.cell(row=r, column=col_idx, value=f"=SUM({get_column_letter(f_start)}{r}:{get_column_letter(f_end)}{r})").font = font_total_d
@@ -1833,7 +1955,7 @@ def create_local_zonal_excel(zone, zone_fms, registry_map, output_path, month_st
         c_val.border = bd_date
         c_val.fill = row_fill
         
-        zs_cell = ws.cell(row=row_num, column=zone_summary_col, value=f"=SUM({get_column_letter(sh_self_col)}{row_num}:{get_column_letter(summary_end_col)}{row_num})")
+        zs_cell = ws.cell(row=row_num, column=zone_summary_col, value=f"=SUM(D{row_num}, {first_sum_let}{row_num}:{last_sum_let}{row_num})")
         zs_cell.font = font_total_d
         zs_cell.alignment = align_right
         zs_cell.border = bd_total
@@ -1846,7 +1968,7 @@ def create_local_zonal_excel(zone, zone_fms, registry_map, output_path, month_st
         sh_cell.border = bd_total
         sh_cell.fill = fill_tot_data
         sh_cell.number_format = '#,##0'
-        
+
         for f_idx, (f_start, f_end, _) in enumerate(fm_col_ranges):
             col_idx = summary_start_col + f_idx
             sum_cell = ws.cell(row=row_num, column=col_idx, value=f"=SUM({get_column_letter(f_start)}{row_num}:{get_column_letter(f_end)}{row_num})")
@@ -2325,55 +2447,120 @@ def run_zonal_summaries(selected_zones, month_str, num_days, dry_run=False):
         sheet_name = f"{zone} CASH IN HAND"
         sh_email = sh_by_zone.get(zone.upper(), '')
 
-        # Check and trash existing Zonal Summary sheet
-        query = f"name = '{sheet_name}' and mimeType = 'application/vnd.google-apps.spreadsheet' and '{zone_folder_id}' in parents and trashed = false"
-        res = drive_service.files().list(q=query, spaces='drive', fields='files(id)').execute()
-        existing_files = res.get('files', [])
+        # 1. Lookup existing Zonal Summary Sheet ID from mapping file or Drive
+        zonal_json_path = os.path.join(BASE_DIR, "zone_to_summary_sheets.json")
+        z_map = {}
+        if os.path.exists(zonal_json_path):
+            try:
+                with open(zonal_json_path, 'r', encoding='utf-8') as f:
+                    z_map = json.load(f)
+            except Exception:
+                z_map = {}
 
-        if existing_files:
-            drive_service.files().update(fileId=existing_files[0]['id'], body={'trashed': True}).execute()
-            log_message(f"Trashed old zonal summary sheet: {sheet_name}")
+        zonal_sheet_id = z_map.get(zone)
+        if not zonal_sheet_id:
+            query = f"name = '{sheet_name}' and mimeType = 'application/vnd.google-apps.spreadsheet' and '{zone_folder_id}' in parents and trashed = false"
+            res = drive_service.files().list(q=query, spaces='drive', fields='files(id)').execute()
+            existing_files = res.get('files', [])
+            if existing_files:
+                zonal_sheet_id = existing_files[0]['id']
 
-        # Upload fresh file
-        file_metadata = {
-            'name': sheet_name,
-            'mimeType': 'application/vnd.google-apps.spreadsheet',
-            'parents': [zone_folder_id]
-        }
-        media = MediaFileUpload(local_summary_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resumable=True)
-        uploaded_file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-        zonal_sheet_id = uploaded_file.get('id')
-        log_message(f"Uploaded Zonal Summary Google Sheet successfully. ID: {zonal_sheet_id}")
+        if zonal_sheet_id:
+            log_message(f"Found existing Zonal Summary Google Sheet ID: {zonal_sheet_id} (Preserving ID and previous month tabs)")
+            ss = gc.open_by_key(zonal_sheet_id)
+            
+            # Check if target tab already exists
+            tab_exists = False
+            for ws in ss.worksheets():
+                if ws.title == month_str:
+                    tab_exists = True
+                    break
+            
+            # Add new sheet tab by temporary upload & copy FIRST
+            temp_metadata = {'name': f'temp_zonal_{zone}_{month_str}', 'mimeType': 'application/vnd.google-apps.spreadsheet'}
+            media = MediaFileUpload(local_summary_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resumable=True)
+            temp_file = drive_service.files().create(body=temp_metadata, media_body=media, fields='id').execute()
+            
+            temp_ss = gc.open_by_key(temp_file['id'])
+            temp_ws = temp_ss.get_worksheet(0)
+            copied_ws = temp_ws.copy_to(zonal_sheet_id)
+            
+            # Cleanly delete old tab with title month_str if it existed before
+            ss = gc.open_by_key(zonal_sheet_id)
+            if tab_exists:
+                try:
+                    for ws in ss.worksheets():
+                        if ws.title == month_str and str(ws.id) != str(copied_ws['sheetId']):
+                            ss.del_worksheet(ws)
+                            log_message(f"  ✔ Replaced old zonal tab '{month_str}'.")
+                            break
+                except Exception as e:
+                    log_message(f"  Warning during old zonal tab removal: {e}")
+            
+            # Rename newly copied tab to month_str
+            target_ws = ss.worksheet(copied_ws['title'])
+            target_ws.update_title(month_str)
+            real_sheet_id = target_ws.id
+            
+            # Clean up default Sheet1 if present and not needed
+            try:
+                for ws in ss.worksheets():
+                    if ws.title == "Sheet1" and len(ss.worksheets()) > 1:
+                        ss.del_worksheet(ws)
+                        break
+            except Exception:
+                pass
+                
+            # Clean up temp upload file from Google Drive
+            try:
+                drive_service.files().delete(fileId=temp_file['id']).execute()
+            except Exception:
+                pass
+                
+            log_message(f"Appended tab '{month_str}' in existing Zonal Summary spreadsheet.")
+        else:
+            # Create new file (only if no existing workbook exists)
+            file_metadata = {
+                'name': sheet_name,
+                'mimeType': 'application/vnd.google-apps.spreadsheet',
+                'parents': [zone_folder_id]
+            }
+            media = MediaFileUpload(local_summary_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resumable=True)
+            uploaded_file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+            zonal_sheet_id = uploaded_file.get('id')
+            ss_meta = sheets_service.spreadsheets().get(spreadsheetId=zonal_sheet_id, fields='sheets(properties(sheetId))').execute()
+            real_sheet_id = ss_meta['sheets'][0]['properties']['sheetId']
+            log_message(f"Created new Zonal Summary Google Sheet ID: {zonal_sheet_id}")
+            
+            # Save new ID to zone_to_summary_sheets.json
+            z_map[zone] = zonal_sheet_id
+            try:
+                with open(zonal_json_path, 'w', encoding='utf-8') as f:
+                    json.dump(z_map, f, indent=4)
+            except Exception:
+                pass
 
         # Apply sheet protection (lock all columns except D18:D48 for SH self entry)
         try:
-            ss_meta = sheets_service.spreadsheets().get(spreadsheetId=zonal_sheet_id, fields='sheets(properties(sheetId))').execute()
-            real_sheet_id = ss_meta['sheets'][0]['properties']['sheetId']
             requests_body = [{
                 'addProtectedRange': {
                     'protectedRange': {
                         'range': {'sheetId': real_sheet_id},
-                        'description': f'Zonal Summary {zone} locked',
+                        'description': f'Zonal Summary {zone} - Headers and IMPORTRANGE locked, D18:D{17+num_days} unlocked for SH',
                         'warningOnly': False,
-                        'editors': {'users': [sh_email] if sh_email else []}
-                    }
-                }
-            }, {
-                'addProtectedRange': {
-                    'protectedRange': {
-                        'range': {
+                        'unprotectedRanges': [{
                             'sheetId': real_sheet_id,
-                            'startRowIndex': 17, 'endRowIndex': 17 + num_days,
-                            'startColumnIndex': 3, 'endColumnIndex': 4
-                        },
-                        'description': f'SH editable range for {zone}',
-                        'warningOnly': False,
+                            'startRowIndex': 17,
+                            'endRowIndex': 17 + num_days,
+                            'startColumnIndex': 3,
+                            'endColumnIndex': 4  # Column D (SH Self)
+                        }],
                         'editors': {'users': [sh_email] if sh_email else []}
                     }
                 }
             }]
             sheets_service.spreadsheets().batchUpdate(spreadsheetId=zonal_sheet_id, body={'requests': requests_body}).execute()
-            log_message(f"Applied protection: locked all except D18:D{18+num_days-1} for SH {sh_email}")
+            log_message(f"Applied protection: locked all IMPORTRANGE columns, unlocked only D18:D{18+num_days-1} for SH {sh_email}")
 
             # Apply data validation on D18:D48
             validation_requests = [{
@@ -3763,10 +3950,10 @@ def run_provisioning(selected_zones, month_str, num_days, dry_run=False, existin
     create_fm_fill_status_sheet(gc, drive_service, month_str, num_days, selected_zones, dry_run=dry_run)
 
     # Depot Summary Sheets
-    update_depot_sheets(gc, drive_service, sheets_service, month_str, num_days, selected_zones, dry_run=dry_run)
+    # update_depot_sheets(gc, drive_service, sheets_service, month_str, num_days, selected_zones, dry_run=dry_run)
 
     # National Grand Total Sheet
-    update_national_sheet(gc, drive_service, sheets_service, month_str, num_days, dry_run=dry_run)
+    # update_national_sheet(gc, drive_service, sheets_service, month_str, num_days, dry_run=dry_run)
 
 # Boss Summary Sheet updater during rollover
 def update_boss_summary_sheets(drive_service, gc, sheets_service, registry_records, month_str, num_days, dry_run=False):
@@ -4126,12 +4313,12 @@ def run_rollover(selected_zones, current_month_override=None, dry_run=False):
         run_transposed_zonal_summaries(selected_zones, final_target_month_str, final_num_days, dry_run=dry_run)
 
     # Regenerate Depot Summary Sheets
-    if final_target_month_str:
-        update_depot_sheets(gc, drive_service, sheets_service, final_target_month_str, final_num_days, selected_zones, dry_run=dry_run)
+    # if final_target_month_str:
+    #     update_depot_sheets(gc, drive_service, sheets_service, final_target_month_str, final_num_days, selected_zones, dry_run=dry_run)
 
     # Regenerate National Grand Total Sheet
-    if final_target_month_str:
-        update_national_sheet(gc, drive_service, sheets_service, final_target_month_str, final_num_days, dry_run=dry_run)
+    # if final_target_month_str:
+    #     update_national_sheet(gc, drive_service, sheets_service, final_target_month_str, final_num_days, dry_run=dry_run)
 
     log_message("Monthly Rollover process completed!")
 
@@ -4580,8 +4767,7 @@ class CashInHandApp(tk.Tk):
             "🟢 INSERT / GENERATE (Create if missing, Ignore if exists)",
             "🟠 OVERRIDE / REPLACE (Replace if exists, Create if missing)",
             "🔴 DELETE MONTH TAB (Delete selected month from workbooks)",
-            "🔵 ARCHIVE & LOCK PREV MONTH / ROLLOVER (Freeze old data & start new)",
-            "🟣 GENERATE DEPOT AND NATIONAL REPORT (Compile summaries only, other sheets untouched)"
+            "🔵 ARCHIVE & LOCK PREV MONTH / ROLLOVER (Freeze old data & start new)"
         ]
         self.action_cb = ttk.Combobox(action_frame, textvariable=self.action_var, values=action_options, width=58, state="readonly", exportselection=False)
         self.action_cb.grid(row=0, column=1, padx=10, pady=8, sticky="w")
@@ -4902,9 +5088,6 @@ class CashInHandApp(tk.Tk):
         elif "ROLLOVER" in action_sel:
             mode = "rollover"
             existing_action = "skip"
-        elif "GENERATE DEPOT AND NATIONAL REPORT" in action_sel:
-            mode = "depot_national_report"
-            existing_action = "overwrite"
         else:
             mode = "provision"
             existing_action = "overwrite"
@@ -4923,20 +5106,6 @@ class CashInHandApp(tk.Tk):
             t_del = threading.Thread(target=self.execute_process, args=(mode, zones, month_override, dry_run, existing_action))
             t_del.daemon = True
             t_del.start()
-            return
-        elif mode == "depot_national_report":
-            if not month_override:
-                month_str, _ = get_current_month_info(get_dhaka_today())
-            else:
-                month_str = month_override.upper()
-            confirm_msg = f"Are you sure you want to Generate/Update Depot and National Reports for [{month_str}]?\n\nThis will only update the Depot and National spreadsheets. All other sheets (FM sheets, Zonal sheets) will remain completely untouched."
-            if not messagebox.askyesno("CONFIRM REPORT GENERATION", confirm_msg, icon="info"):
-                self.run_btn.configure(state="normal")
-                return
-            self.gui_log(f"\nStarting Depot & National Report Generation for {month_str}...\n")
-            t_rep = threading.Thread(target=self.execute_process, args=(mode, zones, month_override, dry_run, existing_action))
-            t_rep.daemon = True
-            t_rep.start()
             return
 
         self.gui_log("Analyzing Google Drive, checking existing sheets, and detecting system deltas...\n")
@@ -5078,24 +5247,6 @@ class CashInHandApp(tk.Tk):
                 else:
                     month_str = month_override.upper()
                 execute_delete_month_tab(zones, month_str, dry_run=dry_run)
-            elif mode == "depot_national_report":
-                if not month_override:
-                    month_str, num_days = get_current_month_info(datetime.date.today())
-                else:
-                    month_str = month_override.upper()
-                    parsed = parse_month_str(month_str)
-                    if parsed:
-                        _, num_days = calendar.monthrange(parsed[0], parsed[1])
-                    else:
-                        num_days = 31
-                
-                creds = get_oauth_credentials()
-                gc = gspread.authorize(creds)
-                drive_service = build('drive', 'v3', credentials=creds)
-                sheets_service = build('sheets', 'v4', credentials=creds)
-                
-                update_depot_sheets(gc, drive_service, sheets_service, month_str, num_days, zones, dry_run=dry_run)
-                update_national_sheet(gc, drive_service, sheets_service, month_str, num_days, dry_run=dry_run)
         except Exception as e:
             self.gui_log(f"\nFATAL SYSTEM ERROR: {e}\n")
         finally:
