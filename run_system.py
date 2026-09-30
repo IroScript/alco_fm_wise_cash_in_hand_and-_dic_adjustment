@@ -72,7 +72,17 @@ def api_call_with_retry(api_func, max_retries=6, initial_delay=2, description="A
             return api_func()
         except Exception as e:
             err_str = str(e)
-            is_rate_limit = "429" in err_str or "Quota exceeded" in err_str or "Rate limit" in err_str or "503" in err_str
+            is_rate_limit = (
+                "429" in err_str or
+                "Quota exceeded" in err_str or
+                "Rate limit" in err_str or
+                "503" in err_str or
+                "500" in err_str or
+                "502" in err_str or
+                "internalError" in err_str or
+                "backendError" in err_str or
+                "Internal Error" in err_str
+            )
             is_net_error = (
                 "ConnectionResetError" in err_str or
                 "RemoteDisconnected" in err_str or
@@ -89,7 +99,7 @@ def api_call_with_retry(api_func, max_retries=6, initial_delay=2, description="A
                 raise e
                 
             if is_rate_limit:
-                log_message(f"⚠️ [Rate Limit] {description} hit quota. Backing off {delay*2}s (Attempt {attempt}/{max_retries})...")
+                log_message(f"⚠️ [Rate Limit / Server Error] {description} temporary server error or quota ({e}). Backing off {delay*2}s (Attempt {attempt}/{max_retries})...")
                 time.sleep(delay * 2)
                 delay *= 2
             elif is_net_error or not is_online():
@@ -2458,16 +2468,34 @@ def run_zonal_summaries(selected_zones, month_str, num_days, dry_run=False):
                 z_map = {}
 
         zonal_sheet_id = z_map.get(zone)
+        ss = None
+        if zonal_sheet_id:
+            try:
+                ss = api_call_with_retry(lambda: gc.open_by_key(zonal_sheet_id), description=f"Open cached zonal sheet for {zone}")
+            except Exception as e:
+                log_message(f"⚠️ Warning: Cached Zonal Sheet ID {zonal_sheet_id} for {zone} invalid or not accessible ({e}). Searching Drive...")
+                zonal_sheet_id = None
+                ss = None
+
         if not zonal_sheet_id:
             query = f"name = '{sheet_name}' and mimeType = 'application/vnd.google-apps.spreadsheet' and '{zone_folder_id}' in parents and trashed = false"
-            res = drive_service.files().list(q=query, spaces='drive', fields='files(id)').execute()
+            res = api_call_with_retry(lambda: drive_service.files().list(q=query, spaces='drive', fields='files(id)').execute(), description=f"Search zonal sheet {sheet_name}")
             existing_files = res.get('files', [])
             if existing_files:
                 zonal_sheet_id = existing_files[0]['id']
+                try:
+                    ss = api_call_with_retry(lambda: gc.open_by_key(zonal_sheet_id), description=f"Open real zonal sheet for {zone}")
+                except Exception:
+                    ss = None
+                z_map[zone] = zonal_sheet_id
+                try:
+                    with open(zonal_json_path, 'w', encoding='utf-8') as f:
+                        json.dump(z_map, f, indent=4)
+                except Exception:
+                    pass
 
-        if zonal_sheet_id:
+        if zonal_sheet_id and ss:
             log_message(f"Found existing Zonal Summary Google Sheet ID: {zonal_sheet_id} (Preserving ID and previous month tabs)")
-            ss = gc.open_by_key(zonal_sheet_id)
             
             # Check if target tab already exists
             tab_exists = False
@@ -2478,15 +2506,18 @@ def run_zonal_summaries(selected_zones, month_str, num_days, dry_run=False):
             
             # Add new sheet tab by temporary upload & copy FIRST
             temp_metadata = {'name': f'temp_zonal_{zone}_{month_str}', 'mimeType': 'application/vnd.google-apps.spreadsheet'}
-            media = MediaFileUpload(local_summary_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resumable=True)
-            temp_file = drive_service.files().create(body=temp_metadata, media_body=media, fields='id').execute()
+            def do_zonal_temp_upload():
+                media = MediaFileUpload(local_summary_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resumable=True)
+                return drive_service.files().create(body=temp_metadata, media_body=media, fields='id').execute()
+
+            temp_file = api_call_with_retry(do_zonal_temp_upload, description=f"Temp zonal upload for {zone}")
             
-            temp_ss = gc.open_by_key(temp_file['id'])
+            temp_ss = api_call_with_retry(lambda: gc.open_by_key(temp_file['id']), description="Open temp zonal sheet")
             temp_ws = temp_ss.get_worksheet(0)
-            copied_ws = temp_ws.copy_to(zonal_sheet_id)
+            copied_ws = api_call_with_retry(lambda: temp_ws.copy_to(zonal_sheet_id), description=f"Copy zonal tab to {zonal_sheet_id}")
             
             # Cleanly delete old tab with title month_str if it existed before
-            ss = gc.open_by_key(zonal_sheet_id)
+            ss = api_call_with_retry(lambda: gc.open_by_key(zonal_sheet_id), description=f"Reopen zonal sheet for {zone}")
             if tab_exists:
                 try:
                     for ws in ss.worksheets():
@@ -2513,7 +2544,7 @@ def run_zonal_summaries(selected_zones, month_str, num_days, dry_run=False):
                 
             # Clean up temp upload file from Google Drive
             try:
-                drive_service.files().delete(fileId=temp_file['id']).execute()
+                api_call_with_retry(lambda: drive_service.files().delete(fileId=temp_file['id']).execute(), description="Delete temp zonal file")
             except Exception:
                 pass
                 
@@ -2525,8 +2556,11 @@ def run_zonal_summaries(selected_zones, month_str, num_days, dry_run=False):
                 'mimeType': 'application/vnd.google-apps.spreadsheet',
                 'parents': [zone_folder_id]
             }
-            media = MediaFileUpload(local_summary_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resumable=True)
-            uploaded_file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+            def do_new_zonal_upload():
+                media = MediaFileUpload(local_summary_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resumable=True)
+                return drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+
+            uploaded_file = api_call_with_retry(do_new_zonal_upload, description=f"Create new Zonal Summary for {zone}")
             zonal_sheet_id = uploaded_file.get('id')
             ss_meta = sheets_service.spreadsheets().get(spreadsheetId=zonal_sheet_id, fields='sheets(properties(sheetId))').execute()
             real_sheet_id = ss_meta['sheets'][0]['properties']['sheetId']
@@ -2815,8 +2849,11 @@ def create_fm_fill_status_sheet(gc, drive_service, month_str, num_days, selected
         'mimeType': 'application/vnd.google-apps.spreadsheet',
         'parents': [PARENT_FOLDER_ID]
     }
-    media = MediaFileUpload(out_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resumable=True)
-    uploaded_file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+    def do_fill_status_upload():
+        media = MediaFileUpload(out_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resumable=True)
+        return drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+
+    uploaded_file = api_call_with_retry(do_fill_status_upload, description="Upload FM Fill Status")
     fill_status_id = uploaded_file.get('id')
     log_message(f"Uploaded FM Fill Status Google Sheet. ID: {fill_status_id}")
 
@@ -3790,12 +3827,15 @@ def run_provisioning(selected_zones, month_str, num_days, dry_run=False, existin
             
             # 1. Add new sheet tab by temporary upload & copy FIRST
             temp_metadata = {'name': 'temp_upload', 'mimeType': 'application/vnd.google-apps.spreadsheet'}
-            media = MediaFileUpload(local_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resumable=True)
-            temp_file = drive_service.files().create(body=temp_metadata, media_body=media, fields='id').execute()
+            def do_temp_upload():
+                media = MediaFileUpload(local_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resumable=True)
+                return drive_service.files().create(body=temp_metadata, media_body=media, fields='id').execute()
+
+            temp_file = api_call_with_retry(do_temp_upload, description=f"Temp upload for {fm_name}")
             
-            temp_ss = gc.open_by_key(temp_file['id'])
+            temp_ss = api_call_with_retry(lambda: gc.open_by_key(temp_file['id']), description="Open temp sheet")
             temp_ws = temp_ss.get_worksheet(0)
-            copied_ws = temp_ws.copy_to(sheet_id)
+            copied_ws = api_call_with_retry(lambda: temp_ws.copy_to(sheet_id), description=f"Copy tab to {sheet_id}")
             
             # 2. Now that the new tab is safely copied inside, we can cleanly delete any old tab with title month_str!
             ss = gc.open_by_key(sheet_id)
@@ -3823,7 +3863,10 @@ def run_provisioning(selected_zones, month_str, num_days, dry_run=False, existin
                 pass
             
             # 4. Clean up temp upload file from Google Drive
-            drive_service.files().delete(fileId=temp_file['id']).execute()
+            try:
+                api_call_with_retry(lambda: drive_service.files().delete(fileId=temp_file['id']).execute(), description="Delete temp file")
+            except Exception:
+                pass
             log_message(f"Appended/Updated tab '{month_str}' in spreadsheet.")
         else:
             # Create new file
@@ -3832,8 +3875,11 @@ def run_provisioning(selected_zones, month_str, num_days, dry_run=False, existin
                 'mimeType': 'application/vnd.google-apps.spreadsheet',
                 'parents': [zone_folder_id]
             }
-            media = MediaFileUpload(local_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resumable=True)
-            uploaded_file = drive_service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
+            def do_new_fm_upload():
+                media = MediaFileUpload(local_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resumable=True)
+                return drive_service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
+
+            uploaded_file = api_call_with_retry(do_new_fm_upload, description=f"Create new sheet for {fm_name}")
             sheet_id = uploaded_file['id']
             web_link = uploaded_file['webViewLink']
             log_message(f"Created new Google Sheet ID: {sheet_id}")
@@ -3912,7 +3958,7 @@ def run_provisioning(selected_zones, month_str, num_days, dry_run=False, existin
             'mimeType': 'application/vnd.google-apps.spreadsheet',
             'parents': [PARENT_FOLDER_ID]
         }
-        reg_file = drive_service.files().create(body=file_metadata, fields='id').execute()
+        reg_file = api_call_with_retry(lambda: drive_service.files().create(body=file_metadata, fields='id').execute(), description="Create Master Registry")
         reg_sheet = gc.open_by_key(reg_file['id'])
         reg_ws = reg_sheet.get_worksheet(0)
 
@@ -4003,7 +4049,7 @@ def update_boss_summary_sheets(drive_service, gc, sheets_service, registry_recor
                 'mimeType': 'application/vnd.google-apps.spreadsheet',
                 'parents': [PARENT_FOLDER_ID]
             }
-            boss_file = drive_service.files().create(body=file_metadata, fields='id').execute()
+            boss_file = api_call_with_retry(lambda: drive_service.files().create(body=file_metadata, fields='id').execute(), description="Create Boss Summary")
             boss_sheet_id = boss_file['id']
             boss_ss = gc.open_by_key(boss_sheet_id)
             log_message(f"Created new Boss Summary sheet: {summary_name}")
